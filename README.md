@@ -81,16 +81,17 @@ Usage
 
 ```
 $ gitout --help
-gitout 0.1.0
+gitout 0.2.0
 
 USAGE:
     gitout [FLAGS] <config> <destination>
 
 FLAGS:
-        --dry-run    Print actions instead of performing them
-    -h, --help       Prints help information
-    -V, --version    Prints version information
-    -v, --verbose    Enable verbose logging
+        --dry-run                 Print actions instead of performing them
+        --experimental-archive    Enable experimental repository archiving
+    -h, --help                    Prints help information
+    -V, --version                 Prints version information
+    -v, --verbose                 Enable verbose logging
 
 ARGS:
     <config>         Configuration file
