@@ -1,5 +1,5 @@
-# Cross-compile the app for musl to create a statically-linked binary for alpine.
-FROM rust:1.65.0 AS rust
+# Build the application using a recent Rust release.
+FROM rust:1.87.0 AS rust
 RUN rustup component add clippy rustfmt
 WORKDIR /app
 COPY Cargo.toml Cargo.lock .rustfmt.toml ./
@@ -10,7 +10,7 @@ RUN cargo test
 RUN cargo fmt -- --check
 
 
-FROM golang:1.18-alpine AS shell
+FROM golang:1.24-alpine AS shell
 RUN apk add --no-cache shellcheck
 ENV GO111MODULE=on
 RUN go install mvdan.cc/sh/v3/cmd/shfmt@latest
@@ -21,9 +21,13 @@ RUN find . -type f | xargs shellcheck -e SC1008
 RUN shfmt -d .
 
 
-FROM debian:buster-slim
-ADD https://github.com/just-containers/s6-overlay/releases/download/v2.2.0.1/s6-overlay-amd64-installer /tmp/
-RUN chmod +x /tmp/s6-overlay-amd64-installer && /tmp/s6-overlay-amd64-installer /
+FROM debian:bookworm-slim
+ARG S6_OVERLAY_VERSION=3.2.1.0
+ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz /tmp/
+RUN tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz
+ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-x86_64.tar.xz /tmp/
+RUN tar -C / -Jxpf /tmp/s6-overlay-x86_64.tar.xz
+ENTRYPOINT ["/init"]
 ENV \
     # Fail if cont-init scripts exit with non-zero code.
     S6_BEHAVIOUR_IF_STAGE2_FAILS=2 \
