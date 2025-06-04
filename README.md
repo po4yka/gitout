@@ -73,7 +73,26 @@ See https://hub.docker.com/r/jakewharton/gitout/tags or `CHANGELOG.md` for the a
 
 ### Binaries
 
-TODO GitHub releases download binaries https://github.com/JakeWharton/gitout/issues/8
+Prebuilt binaries for Linux, macOS, and Windows are available on the
+[GitHub releases page](https://github.com/JakeWharton/gitout/releases).
+Download the archive for your platform, extract it, and place the `gitout`
+executable somewhere on your `PATH`.
+
+#### Building your own
+
+If you want to build these binaries yourself, compile a release binary for each
+target. When cross-compiling from Linux, [`cross`](https://github.com/cross-rs/cross)
+is the easiest approach:
+
+```bash
+cross build --release --target x86_64-unknown-linux-gnu    # Linux
+cross build --release --target x86_64-apple-darwin         # macOS
+cross build --release --target x86_64-pc-windows-gnu       # Windows
+```
+
+Each build will produce `gitout` (or `gitout.exe` on Windows) under
+`target/<target>/release/`. Package the executable into a `.tar.gz` or `.zip`
+archive and upload it as a release asset on GitHub.
 
 
 Usage
