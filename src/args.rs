@@ -26,29 +26,29 @@ pub struct Args {
 }
 
 pub fn parse_args() -> Args {
-        Args::from_args()
+	Args::from_args()
 }
 
 #[cfg(test)]
 mod tests {
-        use super::*;
-        use structopt::StructOpt;
+	use super::*;
+	use structopt::StructOpt;
 
-        #[test]
-        fn from_iter_parses_all_flags() {
-                let args = Args::from_iter(&[
-                        "gitout",
-                        "config.toml",
-                        "dest",
-                        "-v",
-                        "--experimental-archive",
-                        "--dry-run",
-                ]);
+	#[test]
+	fn from_iter_parses_all_flags() {
+		let args = Args::from_iter(&[
+			"gitout",
+			"config.toml",
+			"dest",
+			"-v",
+			"--experimental-archive",
+			"--dry-run",
+		]);
 
-                assert_eq!(args.config, PathBuf::from("config.toml"));
-                assert_eq!(args.destination, PathBuf::from("dest"));
-                assert!(args.verbose);
-                assert!(args.experimental_archive);
-                assert!(args.dry_run);
-        }
+		assert_eq!(args.config, PathBuf::from("config.toml"));
+		assert_eq!(args.destination, PathBuf::from("dest"));
+		assert!(args.verbose);
+		assert!(args.experimental_archive);
+		assert!(args.dry_run);
+	}
 }
