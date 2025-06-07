@@ -3,9 +3,9 @@ name: build and publish
 on:
   push:
     branches:
-      - trunk
+      - master
     tags:
-      - '*'
+      - "*"
 
 jobs:
   build:

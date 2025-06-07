@@ -8,19 +8,18 @@ name: Docker Publish
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["master"]
     # Also run on version tags like v1.0.0
-    tags: [ 'v*.*.*' ]
-  # Run on pull requests targeting the main branch
+    tags: ["v*.*.*"]
+  # Run on pull requests targeting the master branch
   pull_request:
-    branches: [ "main" ]
+    branches: ["master"]
 
 env:
   # The registry to push the image to. For GitHub Container Registry.
   REGISTRY: ghcr.io
   # The image name will be your GitHub username/repository name. e.g., "your-name/gitout"
   IMAGE_NAME: ${{ github.repository }}
-
 
 jobs:
   build:
@@ -42,7 +41,7 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20
         with:
-          cosign-release: 'v2.2.4'
+          cosign-release: "v2.2.4"
 
       # Set up Docker Buildx for multi-platform builds
       # https://github.com/docker/setup-buildx-action
