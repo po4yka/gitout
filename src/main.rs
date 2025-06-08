@@ -212,6 +212,5 @@ fn clone_or_fetch_bare(
 	}
 }
 
-
 #[cfg(test)]
 mod clone_or_fetch_bare_tests;
