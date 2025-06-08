@@ -25,13 +25,13 @@ If you have Rust installed you can install the binary by running `cargo install 
 
 ### Docker
 
-The binary is available inside the `jakewharton/gitout` Docker container which can run it as a cron job.
+The binary is available inside the `po4yka/gitout` Docker container which can run it as a cron job.
 
-[![Docker Image Version](https://img.shields.io/docker/v/jakewharton/gitout?sort=semver)][hub]
-[![Docker Image Size](https://img.shields.io/docker/image-size/jakewharton/gitout)][layers]
+[![Docker Image Version](https://img.shields.io/docker/v/po4yka/gitout?sort=semver)][hub]
+[![Docker Image Size](https://img.shields.io/docker/image-size/po4yka/gitout)][layers]
 
- [hub]: https://hub.docker.com/r/jakewharton/gitout/
- [layers]: https://microbadger.com/images/jakewharton/gitout
+ [hub]: https://hub.docker.com/r/po4yka/gitout/
+ [layers]: https://microbadger.com/images/po4yka/gitout
 
 Mount a `/data` volume which is where the repositories will be stored.
 Mount the `/config` folder which contains a `config.toml` or mount a `/config/config.toml` file directly.
@@ -42,7 +42,7 @@ $ docker run -d \
     -v /path/to/data:/data \
     -v /path/to/config.toml:/config/config.toml \
     -e "CRON=0 * * * *" \
-    jakewharton/gitout
+    po4yka/gitout
 ```
 
 For help creating a valid cron specifier, visit [cron.help](https://cron.help/#0_*_*_*_*).
@@ -55,7 +55,7 @@ If you're using Docker Compose, an example setup looks like;
 ```yaml
 services:
   gitout:
-    image: jakewharton/gitout:latest
+    image: po4yka/gitout:latest
     restart: unless-stopped
     volumes:
       - /path/to/data:/data
@@ -69,7 +69,7 @@ services:
 ```
 
 Note: You may want to specify an explicit version rather than `latest`.
-See https://hub.docker.com/r/jakewharton/gitout/tags or `CHANGELOG.md` for the available versions.
+See https://hub.docker.com/r/po4yka/gitout/tags or `CHANGELOG.md` for the available versions.
 
 #### Publishing with your own Docker credentials
 
