@@ -31,7 +31,7 @@ The binary is available inside the `po4yka/gitout` Docker container which can ru
 [![Docker Image Size](https://img.shields.io/docker/image-size/po4yka/gitout)][layers]
 
  [hub]: https://hub.docker.com/r/po4yka/gitout/
- [layers]: https://microbadger.com/images/po4yka/gitout
+ [layers]: https://hub.docker.com/r/po4yka/gitout
 
 Mount a `/data` volume which is where the repositories will be stored.
 Mount the `/config` folder which contains a `config.toml` or mount a `/config/config.toml` file directly.
