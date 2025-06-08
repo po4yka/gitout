@@ -20,7 +20,7 @@ jobs:
       - uses: crazy-max/ghaction-docker-meta@v1
         id: docker_meta
         with:
-          images: ghcr.io/jakewharton/gitout
+          images: ghcr.io/${{ github.repository_owner }}/gitout
           tag-semver: |
             {{version}}
             {{major}}
