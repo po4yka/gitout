@@ -71,6 +71,19 @@ services:
 Note: You may want to specify an explicit version rather than `latest`.
 See https://hub.docker.com/r/jakewharton/gitout/tags or `CHANGELOG.md` for the available versions.
 
+#### Publishing with your own Docker credentials
+
+If you maintain a fork or need to push images to your own Docker Hub account, add `DOCKER_USERNAME` and `DOCKER_PASSWORD` secrets to your repository and enable a login step in the build workflow:
+
+```yaml
+- uses: docker/login-action@v2
+  with:
+    username: ${{ secrets.DOCKER_USERNAME }}
+    password: ${{ secrets.DOCKER_PASSWORD }}
+```
+
+Update the workflow's `images` setting to reference your repository before pushing.
+
 ### Binaries
 
 Prebuilt binaries for Linux, macOS, and Windows are available on the
