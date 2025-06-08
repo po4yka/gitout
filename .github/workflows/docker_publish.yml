@@ -64,7 +64,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ github.token }}
 
       # Extract metadata (tags, labels) for the Docker image
       # This action creates tags based on the event (e.g., branch, git tag, sha)
