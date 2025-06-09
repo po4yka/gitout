@@ -1,0 +1,8 @@
+# Set default behavior, in case users don't have core.autocrlf set.
+# This will handle line endings automatically for most text files.
+* text=auto
+
+# Force Unix-style LF line endings for files that are known to be scripts.
+# This is critical for files that will be executed inside a Linux container.
+*.sh text eol=lf
+**/etc/services.d/*/run text eol=lf

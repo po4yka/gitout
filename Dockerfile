@@ -10,15 +10,21 @@ RUN cargo test
 RUN cargo fmt -- --check
 
 
+# This stage prepares and validates the s6-overlay scripts
 FROM golang:1.24-alpine AS shell
-RUN apk add --no-cache shellcheck
+# Add dos2unix to explicitly fix line endings, which is the most common cause of the error.
+RUN apk add --no-cache shellcheck dos2unix
 ENV GO111MODULE=on
 RUN go install mvdan.cc/sh/v3/cmd/shfmt@latest
 WORKDIR /overlay
 COPY root/ ./
 COPY .editorconfig /
-RUN find . -type f | xargs shellcheck -e SC1008
-RUN shfmt -d .
+# Combine find operations into a single layer for efficiency.
+# Run dos2unix first to prevent shellcheck/shfmt from failing on malformed scripts.
+RUN find ./etc -type f -name "*.sh" -exec dos2unix {} + && \
+    find ./etc -type f -name "*.sh" -exec chmod +x {} + && \
+    find ./etc -type f -name "*.sh" -exec shellcheck -s sh {} + && \
+    find ./etc -type f -name "*.sh" -exec shfmt -w {} +
 
 
 FROM debian:bookworm-slim
@@ -37,7 +43,7 @@ RUN set -eux; \
       *) echo "Unsupported TARGETARCH=${TARGETARCH}" && exit 1 ;; \
     esac; \
     curl -fsSL -o /tmp/s6-overlay-${S6_ARCH}.tar.xz \
-      "https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-${S6_ARCH}.tar.xz" && \
+      "https://github.com/just-containers/s6-overlay/releases/download/v${S6_VERSION}/s6-overlay-${S6_ARCH}.tar.xz" && \
     tar -C / -Jxpf /tmp/s6-overlay-${S6_ARCH}.tar.xz
 ENTRYPOINT ["/init"]
 ENV \
@@ -52,6 +58,6 @@ ENV \
     PGID="" \
     GITOUT_ARGS=""
 # ensure all s6 init scripts are world‑executable
-COPY --chmod=0755 root/ /
+COPY --from=shell /overlay/ /
 WORKDIR /app
 COPY --from=rust /app/target/release/gitout ./
