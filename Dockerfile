@@ -22,14 +22,23 @@ RUN shfmt -d .
 
 
 FROM debian:bookworm-slim
+ARG TARGETARCH
 RUN apt-get update && \
     apt-get install -y --no-install-recommends xz-utils && \
     rm -rf /var/lib/apt/lists/*
 ARG S6_OVERLAY_VERSION=3.2.1.0
 ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz /tmp/
 RUN tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz
-ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-x86_64.tar.xz /tmp/
-RUN tar -C / -Jxpf /tmp/s6-overlay-x86_64.tar.xz
+# Pick the right arch‑specific overlay (x86_64 or aarch64)
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      "amd64")  S6_ARCH="x86_64"  ;; \
+      "arm64")  S6_ARCH="aarch64" ;; \
+      *) echo "Unsupported TARGETARCH=${TARGETARCH}" && exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/s6-overlay-${S6_ARCH}.tar.xz \
+      "https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-${S6_ARCH}.tar.xz" && \
+    tar -C / -Jxpf /tmp/s6-overlay-${S6_ARCH}.tar.xz
 ENTRYPOINT ["/init"]
 ENV \
     # Fail if cont-init scripts exit with non-zero code.
