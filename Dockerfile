@@ -11,14 +11,16 @@ RUN cargo fmt -- --check
 
 
 FROM golang:1.24-alpine AS shell
-RUN apk add --no-cache shellcheck
+RUN apk add --no-cache shellcheck dos2unix
 ENV GO111MODULE=on
 RUN go install mvdan.cc/sh/v3/cmd/shfmt@latest
 WORKDIR /overlay
 COPY root/ ./
 COPY .editorconfig /
-RUN find . -type f | xargs shellcheck -e SC1008
-RUN shfmt -d .
+RUN find . -type f -name "*.sh" -exec dos2unix {} + && \
+    find . -type f -name "*.sh" -exec chmod +x {} +
+RUN find . -type f -name "*.sh" -exec shellcheck -e SC1008 {} +
+RUN find . -type f -name "*.sh" -exec shfmt -d {} +
 
 
 FROM debian:bookworm-slim
@@ -52,6 +54,6 @@ ENV \
     PGID="" \
     GITOUT_ARGS=""
 # ensure all s6 init scripts are world‑executable
-COPY --chmod=0755 root/ /
+COPY --from=shell /overlay/ /
 WORKDIR /app
 COPY --from=rust /app/target/release/gitout ./
