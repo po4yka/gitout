@@ -1,5 +1,5 @@
 # Build the application using a recent Rust release.
-FROM rust:1.87.0 AS rust
+FROM rust:1.80.0 AS rust
 RUN rustup component add clippy rustfmt
 WORKDIR /app
 COPY Cargo.toml Cargo.lock .rustfmt.toml ./
@@ -10,15 +10,14 @@ RUN cargo test
 RUN cargo fmt -- --check
 
 
-FROM golang:1.24-alpine AS shell
-RUN apk add --no-cache shellcheck dos2unix
+FROM golang:1.22.5-alpine AS shell
+RUN apk add --no-cache shellcheck
 ENV GO111MODULE=on
 RUN go install mvdan.cc/sh/v3/cmd/shfmt@latest
 WORKDIR /overlay
 COPY root/ ./
 COPY .editorconfig /
-RUN find ./etc -type f -exec dos2unix {} + && \
-    find ./etc -type f -exec chmod +x {} +
+RUN find ./etc -type f -exec chmod +x {} +
 RUN find ./etc -type f -exec shellcheck -s sh {} +
 RUN find ./etc -type f -exec shfmt -w {} +
 
