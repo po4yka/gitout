@@ -24,7 +24,7 @@ RUN shfmt -d .
 FROM debian:bookworm-slim
 ARG TARGETARCH
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends xz-utils && \
+    apt-get install -y --no-install-recommends ca-certificates curl xz-utils && \
     rm -rf /var/lib/apt/lists/*
 ARG S6_OVERLAY_VERSION=3.2.1.0
 ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz /tmp/
@@ -51,11 +51,6 @@ ENV \
     PUID="" \
     PGID="" \
     GITOUT_ARGS=""
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        curl \
-      && \
-    rm -rf /var/lib/apt/lists/*
 COPY root/ /
 WORKDIR /app
 COPY --from=rust /app/target/release/gitout ./
