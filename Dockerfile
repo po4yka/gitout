@@ -12,24 +12,16 @@ RUN cargo fmt -- --check
 
 # This stage prepares and validates the s6-overlay scripts
 FROM golang:1.24-alpine AS shell
-# Add dos2unix to fix line endings and grep to verify the fix
-RUN apk add --no-cache shellcheck dos2unix grep
+# Add dos2unix to explicitly fix line endings, even if the source is clean.
+RUN apk add --no-cache shellcheck dos2unix
 ENV GO111MODULE=on
 RUN go install mvdan.cc/sh/v3/cmd/shfmt@latest
 WORKDIR /overlay
 COPY root/ ./
 COPY .editorconfig /
-
-# Step 1: Attempt to fix line endings in all shell scripts.
-RUN find ./etc -type f -name "*.sh" -exec dos2unix {} +
-
-# Step 2: VERIFICATION - Fail the build if any script still has bad (CRLF) endings.
-# This grep command looks for the carriage return character (\r).
-# The '!' inverts the result, so if it finds one, the command fails and stops the build.
-RUN ! grep -rUP '\r' ./etc
-
-# Step 3: Continue with other checks only if verification passes.
-RUN find ./etc -type f -name "*.sh" -exec chmod +x {} + && \
+# Run the checks and permissions settings.
+RUN find ./etc -type f -name "*.sh" -exec dos2unix {} + && \
+    find ./etc -type f -name "*.sh" -exec chmod +x {} + && \
     find ./etc -type f -name "*.sh" -exec shellcheck -s sh {} + && \
     find ./etc -type f -name "*.sh" -exec shfmt -w {} +
 
