@@ -17,10 +17,10 @@ RUN go install mvdan.cc/sh/v3/cmd/shfmt@latest
 WORKDIR /overlay
 COPY root/ ./
 COPY .editorconfig /
-RUN find . -type f -name "*.sh" -exec dos2unix {} + && \
-    find . -type f -name "*.sh" -exec chmod +x {} +
-RUN find . -type f -name "*.sh" -exec shellcheck -e SC1008 {} +
-RUN find . -type f -name "*.sh" -exec shfmt -d {} +
+RUN find ./etc -type f -exec dos2unix {} + && \
+    find ./etc -type f -exec chmod +x {} +
+RUN find ./etc -type f -exec shellcheck -s sh {} +
+RUN find ./etc -type f -exec shfmt -w {} +
 
 
 FROM debian:bookworm-slim
