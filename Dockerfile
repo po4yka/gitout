@@ -1,5 +1,5 @@
 # Build the application using a recent Rust release.
-FROM rust:1.80.0 AS rust
+FROM rust:1.87.0 AS rust
 RUN rustup component add clippy rustfmt
 WORKDIR /app
 COPY Cargo.toml Cargo.lock .rustfmt.toml ./
@@ -10,7 +10,7 @@ RUN cargo test
 RUN cargo fmt -- --check
 
 
-FROM golang:1.22.5-alpine AS shell
+FROM golang:1.24-alpine AS shell
 RUN apk add --no-cache shellcheck
 ENV GO111MODULE=on
 RUN go install mvdan.cc/sh/v3/cmd/shfmt@latest
