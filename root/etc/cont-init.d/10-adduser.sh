@@ -1,4 +1,4 @@
-#!/usr/bin/with-contenv sh
+#!/command/with-contenv sh
 #
 # Copyright (c) 2017 Joshua Avalon
 #

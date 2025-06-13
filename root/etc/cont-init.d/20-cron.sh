@@ -1,4 +1,4 @@
-#!/usr/bin/with-contenv sh
+#!/command/with-contenv sh
 
 if [ -z "$CRON" ]; then
 	echo "Not running in cron mode" >&2
