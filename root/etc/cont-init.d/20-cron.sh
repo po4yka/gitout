@@ -11,4 +11,5 @@ fi
 
 # Set up the cron schedule.
 echo "Initializing cron"
+echo "Schedule: $CRON"
 echo "$CRON /usr/bin/flock -n /app/sync.lock /app/sync.sh" | crontab -u abc -
