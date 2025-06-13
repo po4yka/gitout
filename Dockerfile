@@ -21,7 +21,9 @@ COPY root/ ./
 COPY .editorconfig /
 # Run the checks and permissions settings.
 RUN find ./etc -type f -name "*.sh" -exec dos2unix {} + && \
+    find ./etc/services.d -type f -exec dos2unix {} + && \
     find ./etc -type f -name "*.sh" -exec chmod +x {} + && \
+    find ./etc/services.d -type f -exec chmod +x {} + && \
     find ./etc -type f -name "*.sh" -exec shellcheck -s sh {} + && \
     find ./etc -type f -name "*.sh" -exec shfmt -w {} +
 
@@ -55,6 +57,7 @@ ENV \
     HEALTHCHECK_HOST="https://hc-ping.com" \
     PUID="" \
     PGID="" \
+    DEBUG="0" \
     GITOUT_ARGS=""
 # ensure all s6 init scripts are world‑executable
 COPY --from=shell /overlay/ /

@@ -1,4 +1,8 @@
 #!/command/with-contenv sh
+
+# Enable strict mode and optional shell tracing when DEBUG=1
+set -euo pipefail
+[ "${DEBUG:-0}" = 0 ] || set -x
 #
 # Copyright (c) 2017 Joshua Avalon
 #
@@ -45,3 +49,13 @@ PGID: $PGID
 "
 
 chown abc:abc /app
+echo "gitout binary permissions:" && ls -l /app/gitout
+echo "cron run permissions:" && ls -l /etc/services.d/cron/run
+
+if [ ! -x /app/gitout ]; then
+    echo "ERROR: /app/gitout is missing or not executable" >&2
+fi
+
+if [ ! -x /etc/services.d/cron/run ]; then
+    echo "ERROR: cron run script is missing or not executable" >&2
+fi
