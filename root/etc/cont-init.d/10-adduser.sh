@@ -31,6 +31,8 @@ Initializing container
 
 User uid: $(id -u abc)
 User gid: $(id -g abc)
+PUID: $PUID
+PGID: $PGID
 "
 
 chown abc:abc /app
