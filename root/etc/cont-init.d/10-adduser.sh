@@ -23,8 +23,17 @@
 PUID=${PUID:-9001}
 PGID=${PGID:-9001}
 
-groupmod -g "$PGID" abc
-usermod -u "$PUID" abc
+if ! getent group abc >/dev/null; then
+    groupadd -g "$PGID" abc
+else
+    groupmod -g "$PGID" abc
+fi
+
+if ! id abc >/dev/null 2>&1; then
+    useradd -u "$PUID" -g abc -s /usr/sbin/nologin -M abc
+else
+    usermod -u "$PUID" abc
+fi
 
 echo "
 Initializing container
