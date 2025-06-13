@@ -1,4 +1,5 @@
-#!/command/with-contenv sh
+#!/command/with-contenv bash
+# shellcheck shell=bash
 
 # Enable strict mode and optional shell tracing when DEBUG=1
 set -euo pipefail

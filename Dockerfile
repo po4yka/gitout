@@ -24,7 +24,7 @@ RUN find ./etc -type f -name "*.sh" -exec dos2unix {} + && \
     find ./etc/services.d -type f -exec dos2unix {} + && \
     find ./etc -type f -name "*.sh" -exec chmod +x {} + && \
     find ./etc/services.d -type f -exec chmod +x {} + && \
-    find ./etc -type f -name "*.sh" -exec shellcheck -s sh {} + && \
+    find ./etc -type f -name "*.sh" -exec shellcheck -s bash {} + && \
     find ./etc -type f -name "*.sh" -exec shfmt -w {} +
 
 
