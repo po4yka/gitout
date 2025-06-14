@@ -8,19 +8,19 @@ pub struct Args {
     /// Configuration file
     #[arg(value_parser)]
     pub config: PathBuf,
-    
+
     /// Backup directory
     #[arg(value_parser)]
     pub destination: PathBuf,
-    
+
     /// Enable verbose logging
     #[arg(short, long)]
     pub verbose: bool,
-    
+
     /// Enable experimental repository archiving
     #[arg(long)]
     pub experimental_archive: bool,
-    
+
     /// Print actions instead of performing them
     #[arg(long)]
     pub dry_run: bool,
