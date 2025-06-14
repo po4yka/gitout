@@ -7,20 +7,16 @@ use clap::Parser;
 pub struct Args {
 	/// Configuration file
 	#[arg()]
-	pub config: PathBuf,
-
+       pub config: PathBuf,
 	/// Backup directory
 	#[arg()]
-	pub destination: PathBuf,
-
+       pub destination: PathBuf,
 	/// Enable verbose logging
 	#[arg(short, long)]
-	pub verbose: bool,
-
+       pub verbose: bool,
 	/// Enable experimental repository archiving
 	#[arg(long)]
-	pub experimental_archive: bool,
-
+       pub experimental_archive: bool,
 	/// Print actions instead of performing them
 	#[arg(long)]
 	pub dry_run: bool,
