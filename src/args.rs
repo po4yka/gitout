@@ -1,54 +1,61 @@
 use std::path::PathBuf;
 
-use structopt::StructOpt;
+use clap::Parser;
 
-#[derive(Debug, PartialEq, StructOpt)]
+#[derive(Debug, PartialEq, Parser)]
+#[command(author, version, about, long_about = None)]
 pub struct Args {
 	/// Configuration file
-	#[structopt(parse(from_os_str))]
-	pub config: PathBuf,
+        #[arg()]
+        pub config: PathBuf,
 
 	/// Backup directory
-	#[structopt(parse(from_os_str))]
-	pub destination: PathBuf,
+        #[arg()]
+        pub destination: PathBuf,
 
 	/// Enable verbose logging
-	#[structopt(short, long)]
-	pub verbose: bool,
+        #[arg(short, long)]
+        pub verbose: bool,
 
 	/// Enable experimental repository archiving
-	#[structopt(long)]
-	pub experimental_archive: bool,
+        #[arg(long)]
+        pub experimental_archive: bool,
 
 	/// Print actions instead of performing them
-	#[structopt(long)]
-	pub dry_run: bool,
+        #[arg(long)]
+        pub dry_run: bool,
 }
 
 pub fn parse_args() -> Args {
-	Args::from_args()
+        Args::parse()
 }
 
 #[cfg(test)]
 mod tests {
-	use super::*;
-	use structopt::StructOpt;
+        use super::*;
+        use clap::Parser;
 
 	#[test]
-	fn from_iter_parses_all_flags() {
-		let args = Args::from_iter(&[
-			"gitout",
-			"config.toml",
-			"dest",
-			"-v",
-			"--experimental-archive",
-			"--dry-run",
-		]);
+        fn parse_from_parses_all_flags() {
+                let args = Args::parse_from([
+                        "gitout",
+                        "config.toml",
+                        "dest",
+                        "-v",
+                        "--experimental-archive",
+                        "--dry-run",
+                ]);
 
 		assert_eq!(args.config, PathBuf::from("config.toml"));
 		assert_eq!(args.destination, PathBuf::from("dest"));
 		assert!(args.verbose);
 		assert!(args.experimental_archive);
-		assert!(args.dry_run);
-	}
+                assert!(args.dry_run);
+        }
+
+        #[test]
+        fn parse_from_missing_required_args_errors() {
+                let result = Args::try_parse_from(["gitout"]); 
+                assert!(result.is_err());
+        }
 }
