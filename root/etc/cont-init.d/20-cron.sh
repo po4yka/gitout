@@ -5,12 +5,12 @@
 set -euo pipefail
 [ "${DEBUG:-0}" = 0 ] || set -x
 
-if [ -z "$CRON" ]; then
+if [ -z "${CRON:-}" ]; then  # Changed from $CRON to ${CRON:-}
     echo "Not running in cron mode" >&2
     exit 0
 fi
 
-if [ -z "$HEALTHCHECK_ID" ]; then
+if [ -z "${HEALTHCHECK_ID:-}" ]; then  # Also fix this one
     echo "NOTE: Define HEALTHCHECK_ID with https://healthchecks.io to monitor sync job" >&2
 fi
 
@@ -30,3 +30,4 @@ fi
 
 echo "$CRON /usr/bin/flock -n /app/sync.lock /app/sync.sh" | crontab -u abc -
 crontab -u abc -l
+
