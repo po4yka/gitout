@@ -1,42 +1,43 @@
 use std::path::PathBuf;
 
-use structopt::StructOpt;
+use clap::Parser;
 
-#[derive(Debug, PartialEq, StructOpt)]
+#[derive(Debug, PartialEq, Parser)]
+#[command(author, version, about, long_about = None)]
 pub struct Args {
 	/// Configuration file
-	#[structopt(parse(from_os_str))]
+	#[arg()]
 	pub config: PathBuf,
 
 	/// Backup directory
-	#[structopt(parse(from_os_str))]
+	#[arg()]
 	pub destination: PathBuf,
 
 	/// Enable verbose logging
-	#[structopt(short, long)]
+	#[arg(short, long)]
 	pub verbose: bool,
 
 	/// Enable experimental repository archiving
-	#[structopt(long)]
+	#[arg(long)]
 	pub experimental_archive: bool,
 
 	/// Print actions instead of performing them
-	#[structopt(long)]
+	#[arg(long)]
 	pub dry_run: bool,
 }
 
 pub fn parse_args() -> Args {
-	Args::from_args()
+	Args::parse()
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use structopt::StructOpt;
+	use clap::Parser;
 
 	#[test]
-	fn from_iter_parses_all_flags() {
-		let args = Args::from_iter(&[
+	fn parse_from_parses_all_flags() {
+		let args = Args::parse_from([
 			"gitout",
 			"config.toml",
 			"dest",
@@ -50,5 +51,11 @@ mod tests {
 		assert!(args.verbose);
 		assert!(args.experimental_archive);
 		assert!(args.dry_run);
+	}
+
+	#[test]
+	fn parse_from_missing_required_args_errors() {
+		let result = Args::try_parse_from(["gitout"]);
+		assert!(result.is_err());
 	}
 }
