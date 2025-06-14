@@ -1,49 +1,49 @@
 use std::path::PathBuf;
 
-use structopt::StructOpt;
+use clap::Parser;
 
-#[derive(Debug, PartialEq, StructOpt)]
+#[derive(Debug, PartialEq, Parser)]
 pub struct Args {
 	/// Configuration file
-	#[structopt(parse(from_os_str))]
+	#[arg(value_parser)]
 	pub config: PathBuf,
-
+	
 	/// Backup directory
-	#[structopt(parse(from_os_str))]
+	#[arg(value_parser)]
 	pub destination: PathBuf,
-
+	
 	/// Enable verbose logging
-	#[structopt(short, long)]
+	#[arg(short, long)]
 	pub verbose: bool,
-
+	
 	/// Enable experimental repository archiving
-	#[structopt(long)]
+	#[arg(long)]
 	pub experimental_archive: bool,
-
+	
 	/// Print actions instead of performing them
-	#[structopt(long)]
+	#[arg(long)]
 	pub dry_run: bool,
 }
 
-pub fn parse_args() -> Args {
-	Args::from_args()
-}
+	pub fn parse_args() -> Args {
+	Args::parse()
+	}
 
 #[cfg(test)]
 mod tests {
-	use super::*;
-	use structopt::StructOpt;
+use super::*;
+use clap::Parser;
 
 	#[test]
 	fn from_iter_parses_all_flags() {
-		let args = Args::from_iter(&[
-			"gitout",
-			"config.toml",
-			"dest",
-			"-v",
-			"--experimental-archive",
-			"--dry-run",
-		]);
+               let args = Args::parse_from([
+                        "gitout",
+                        "config.toml",
+                        "dest",
+                        "-v",
+                        "--experimental-archive",
+                        "--dry-run",
+               ]);
 
 		assert_eq!(args.config, PathBuf::from("config.toml"));
 		assert_eq!(args.destination, PathBuf::from("dest"));
