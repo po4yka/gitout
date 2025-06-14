@@ -77,7 +77,7 @@ fn main() {
 				);
 				io::stdout().flush().unwrap();
 
-				github::archive_repo(&client, &archive_dir, &repo, &github.token);
+				github::archive_repo(&client, archive_dir.as_path(), &repo, &github.token);
 
 				println!("Done");
 			}

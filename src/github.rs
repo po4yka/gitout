@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::io::copy;
-use std::path::PathBuf;
+use std::path::Path;
 use std::time::Duration;
 use std::{fs, thread};
 
@@ -98,7 +98,7 @@ pub struct Repositories {
 	pub gists: Vec<String>,
 }
 
-pub fn archive_repo(client: &Client, dir: &PathBuf, repository: &str, token: &str) {
+pub fn archive_repo(client: &Client, dir: &Path, repository: &str, token: &str) {
 	let migration_request = MigrationRequest {
 		repositories: vec![repository.to_owned()],
 	};
@@ -149,9 +149,9 @@ pub fn archive_repo(client: &Client, dir: &PathBuf, repository: &str, token: &st
 	// 2. Delete the old archive repo.zip.
 	// 3. Rename the new archive from repo.zip.new to repo.zip.
 
-	let mut archive_old = dir.clone();
+	let mut archive_old = dir.to_path_buf();
 	archive_old.push(format!("{0}.zip", &repository));
-	let mut archive_new = dir.clone();
+	let mut archive_new = dir.to_path_buf();
 	archive_new.push(format!("{0}.zip.new", &repository));
 
 	let mut archive_dir = archive_old.clone();
@@ -186,7 +186,7 @@ pub fn archive_repo(client: &Client, dir: &PathBuf, repository: &str, token: &st
 
 	// Step 2:
 	if archive_old_exists {
-		fs::rename(&archive_old, &archive_old).unwrap();
+		fs::remove_file(&archive_old).unwrap();
 	}
 
 	// Step 3:
