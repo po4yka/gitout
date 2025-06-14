@@ -21,19 +21,28 @@ Release Process
 
     (Replacing X.Y.Z with the actual release version.)
 
- 6. Tag Git SHA.
+6. Tag Git SHA.
 
-    ```
-    $ git tag -a X.Y.Z -m 'Version X.Y.Z'
-    ```
+   ```
+   $ git tag -a X.Y.Z -m 'Version X.Y.Z'
+   ```
 
-    (Replacing X.Y.Z with the actual release version.)
+   (Replacing X.Y.Z with the actual release version.)
 
- 7. Push commits and tag to GitHub.
+7. Update the `latest` tag to point at this release.
 
-    ```
+   ```
+   $ git tag -fa latest -m 'Version X.Y.Z'
+   ```
+
+   (Replacing X.Y.Z with the actual release version.)
+
+8. Push commits and tags to GitHub.
+
+   ```
     $ git push
     $ git push --tags
+    $ git push -f origin latest
     ```
 
     This will release to Docker Hub and crates.io.
