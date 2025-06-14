@@ -24,6 +24,18 @@ pub struct Args {
     /// Print actions instead of performing them
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Include repositories you own
+    #[arg(long)]
+    pub owned: bool,
+
+    /// Include repositories you have starred
+    #[arg(long, alias = "stars")]
+    pub starred: bool,
+
+    /// Include repositories you watch
+    #[arg(long)]
+    pub watched: bool,
 }
 
 pub fn parse_args() -> Args {
@@ -44,6 +56,9 @@ mod tests {
             "-v",
             "--experimental-archive",
             "--dry-run",
+            "--owned",
+            "--stars",
+            "--watched",
         ]);
 
         assert_eq!(args.config, PathBuf::from("config.toml"));
@@ -51,6 +66,9 @@ mod tests {
         assert!(args.verbose);
         assert!(args.experimental_archive);
         assert!(args.dry_run);
+        assert!(args.owned);
+        assert!(args.starred);
+        assert!(args.watched);
     }
 
     #[test]

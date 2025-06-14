@@ -6,8 +6,10 @@ A command-line tool to automatically backup Git repositories from GitHub or anyw
 The `gitout` tool will clone git repos from GitHub or any other git hosting service.
 If the repository was already cloned, it will fetch any updates to keep your local copy in sync.
 
-When you add your GitHub username and a token, `gitout` will discover all of your owned repositories and synchronize them automatically.
-You can opt-in to having repositories that you've starred or watched synchronized as well.
+When you add your GitHub username and a token, `gitout` can discover your repositories.
+Use the `--owned`, `--starred` (or `--stars`), and `--watched` flags to specify which
+repositories are synchronized. When a flag is omitted the behavior falls back to the
+values configured in `config.toml`.
 
 The cloned repositories are [bare](https://www.saintsjd.com/2011/01/what-is-a-bare-git-repository/).
 In other words, there is no working copy of the files for you to interact with.
@@ -42,7 +44,8 @@ $ docker run -d \
     -v /path/to/data:/data \
     -v /path/to/config.toml:/config/config.toml \
     -e "CRON=0 * * * *" \
-    po4yka/gitout
+    po4yka/gitout \
+    --owned --starred --watched
 ```
 
 For help creating a valid cron specifier, visit [cron.help](https://cron.help/#0_*_*_*_*).
@@ -60,6 +63,7 @@ services:
     volumes:
       - /path/to/data:/data
       - /path/to/config:/config
+    command: --owned --starred --watched
     environment:
       - "CRON=0 * * * *"
       #Optional:
@@ -115,19 +119,21 @@ Usage
 $ gitout --help
 gitout 0.2.0
 
-USAGE:
-    gitout [FLAGS] <config> <destination>
+Usage: gitout [OPTIONS] <CONFIG> <DESTINATION>
 
-FLAGS:
-        --dry-run                 Print actions instead of performing them
-        --experimental-archive    Enable experimental repository archiving
-    -h, --help                    Prints help information
-    -V, --version                 Prints version information
-    -v, --verbose                 Enable verbose logging
+Arguments:
+  <CONFIG>       Configuration file
+  <DESTINATION>  Backup directory
 
-ARGS:
-    <config>         Configuration file
-    <destination>    Backup directory
+Options:
+  -v, --verbose               Enable verbose logging
+      --experimental-archive  Enable experimental repository archiving
+      --dry-run               Print actions instead of performing them
+      --owned                 Include repositories you own
+      --starred               Include repositories you have starred
+      --watched               Include repositories you watch
+  -h, --help                  Print help
+  -V, --version               Print version
 ```
 
 
