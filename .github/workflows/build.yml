@@ -26,5 +26,8 @@ jobs:
         toolchain: stable
     - uses: actions-rs/cargo@v1.0.3
       with:
+        command: test
+    - uses: actions-rs/cargo@v1.0.3
+      with:
         command: publish
         args: --dry-run

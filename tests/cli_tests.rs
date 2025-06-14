@@ -140,3 +140,15 @@ fn binary_fetches_updates() {
 	let head = repo.refname_to_id("refs/remotes/origin/master").unwrap();
 	assert_eq!(head.to_string(), new_commit);
 }
+
+#[test]
+fn binary_prints_version() {
+	let output = Command::new(env!("CARGO_BIN_EXE_gitout"))
+		.arg("--version")
+		.output()
+		.expect("run gitout");
+	assert!(output.status.success());
+
+	let stdout = String::from_utf8(output.stdout).unwrap();
+	assert!(stdout.contains(env!("CARGO_PKG_VERSION")));
+}

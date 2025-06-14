@@ -3,11 +3,14 @@ use std::path::PathBuf;
 use clap::Parser;
 
 #[derive(Debug, PartialEq, Parser)]
+#[command(author, version, about, long_about = None)]
 pub struct Args {
 	/// Configuration file
+	#[arg()]
 	pub config: PathBuf,
 
 	/// Backup directory
+	#[arg()]
 	pub destination: PathBuf,
 
 	/// Enable verbose logging
@@ -33,7 +36,7 @@ mod tests {
 	use clap::Parser;
 
 	#[test]
-	fn from_iter_parses_all_flags() {
+	fn parse_from_parses_all_flags() {
 		let args = Args::parse_from([
 			"gitout",
 			"config.toml",
@@ -48,5 +51,11 @@ mod tests {
 		assert!(args.verbose);
 		assert!(args.experimental_archive);
 		assert!(args.dry_run);
+	}
+
+	#[test]
+	fn parse_from_missing_required_args_errors() {
+		let result = Args::try_parse_from(["gitout"]);
+		assert!(result.is_err());
 	}
 }
