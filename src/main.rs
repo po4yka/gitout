@@ -21,6 +21,9 @@ fn main() {
         verbose,
         experimental_archive,
         dry_run,
+        owned,
+        starred,
+        watched,
     } = args;
 
     if !dry_run {
@@ -31,7 +34,15 @@ fn main() {
     }
 
     let config = fs::read_to_string(config).unwrap();
-    let config = config::parse_config(&config).unwrap();
+    let mut config = config::parse_config(&config).unwrap();
+    if let Some(ref mut github) = config.github {
+        if starred {
+            github.clone.starred = true;
+        }
+        if watched {
+            github.clone.watched = true;
+        }
+    }
     if verbose {
         dbg!(&config);
     }
@@ -107,7 +118,9 @@ fn main() {
         clone_dir.push("clone");
 
         let mut clone_repos = vec![];
-        clone_repos.extend(user_repos.owned.clone());
+        if owned {
+            clone_repos.extend(user_repos.owned.clone());
+        }
         clone_repos.extend(archive_repos);
         clone_repos.extend(github.clone.repos.clone());
         if github.clone.starred {
