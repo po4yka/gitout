@@ -86,6 +86,97 @@ secrets:
     file: /path/to/github_token.txt  # Path to your GitHub token file
 ```
 
+Here's a complete example of both configuration files:
+
+1. `/opt/gitout/config.toml`:
+```toml
+version = 0
+
+[github]
+user = "your-github-username"
+# token is not needed if using GITHUB_TOKEN_FILE in docker-compose
+
+[github.archive]
+owned = true
+
+[github.clone]
+starred = true
+watched = true
+gists = true
+repos = [
+    # Add specific repositories to clone
+    # "username/repo-name"
+]
+ignored = [
+    # Add repositories to ignore
+    # "username/repo-name"
+]
+
+[git.repos]
+# Add non-GitHub git repositories
+# example = "https://example.com/example.git"
+```
+
+2. `/opt/gitout/docker-compose.yml`:
+```yaml
+services:
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --cleanup --interval 21600
+    restart: unless-stopped
+
+  gitout:
+    image: ghcr.io/po4yka/gitout:latest
+    platform: linux/arm64  # or linux/amd64 for x86_64
+    restart: unless-stopped
+    volumes:
+      - /mnt/nvme/git-backups:/data
+      - /opt/gitout/config.toml:/app/config.toml:ro
+    environment:
+      - GITHUB_TOKEN_FILE=/run/secrets/github_pat
+      - CRON=0 0 * * *  # Run daily at midnight
+    secrets:
+      - github_pat
+    command: >
+      /app/gitout
+      --stars --owned --watched
+      --interval 86400
+      --workers 4
+      /app/config.toml
+      /data
+
+secrets:
+  github_pat:
+    file: /opt/gitout/github_token.txt
+```
+
+To set up:
+
+1. Create the config directory and files:
+```bash
+sudo mkdir -p /opt/gitout
+sudo nano /opt/gitout/config.toml  # Add the config.toml content
+sudo nano /opt/gitout/github_token.txt  # Add your GitHub token
+sudo nano /opt/gitout/docker-compose.yml  # Add the docker-compose.yml content
+```
+
+2. Set proper permissions:
+```bash
+sudo chown -R root:root /opt/gitout
+sudo chmod 644 /opt/gitout/config.toml
+sudo chmod 600 /opt/gitout/github_token.txt
+sudo chmod 644 /opt/gitout/docker-compose.yml
+```
+
+3. Start the services:
+```bash
+cd /opt/gitout
+sudo docker compose up -d
+```
+
 Note: You may want to specify an explicit version rather than `latest`.
 See https://hub.docker.com/r/po4yka/gitout/tags or `CHANGELOG.md` for the available versions.
 
