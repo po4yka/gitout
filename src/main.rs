@@ -268,7 +268,17 @@ fn clone_or_fetch_bare(
             let mut repo_dir = dir.clone();
             repo_dir.push(repository);
 
+            // Ensure the parent directory exists
+            if let Some(parent) = repo_dir.parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
+
             let repo_exists = fs::metadata(&repo_dir).map_or_else(|_| false, |m| m.is_dir());
+
+            // If repo_dir exists but is not a directory, remove it
+            if fs::metadata(&repo_dir).map_or_else(|_| false, |m| !m.is_dir()) {
+                fs::remove_file(&repo_dir).unwrap();
+            }
 
             let repository: Repository;
             let mut origin = if repo_exists {
