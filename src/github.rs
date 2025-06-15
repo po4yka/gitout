@@ -122,7 +122,8 @@ pub fn archive_repo(client: &Client, dir: &Path, repository: &str, token: &str) 
             break;
         }
         if migration_state == "failed" {
-            panic!("Creating migration for {} failed", &repository);
+            eprintln!("Creating migration for {} failed", &repository);
+            return;
         }
 
         thread::sleep(wait);
