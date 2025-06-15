@@ -1,9 +1,13 @@
 use std::collections::HashSet;
 use std::io::Write;
 use std::path::PathBuf;
+use std::thread;
+use std::time::Duration;
 use std::{fs, io};
 
 use git2::{Cred, FetchOptions, RemoteCallbacks, Repository};
+use rayon::prelude::*;
+use rayon::ThreadPoolBuilder;
 use reqwest::blocking::Client;
 
 mod args;
@@ -15,6 +19,26 @@ fn main() {
     if args.verbose {
         dbg!(&args);
     }
+
+    if args.workers > 1 {
+        ThreadPoolBuilder::new()
+            .num_threads(args.workers)
+            .build_global()
+            .unwrap();
+    }
+
+    loop {
+        sync_once(&args);
+
+        if let Some(interval) = args.interval {
+            thread::sleep(Duration::from_secs(interval));
+        } else {
+            break;
+        }
+    }
+}
+
+fn sync_once(args: &args::Args) {
     let args::Args {
         config,
         destination,
@@ -24,7 +48,8 @@ fn main() {
         owned,
         starred,
         watched,
-    } = args;
+        ..
+    } = args.clone();
 
     if !dry_run {
         let destination_metadata = fs::metadata(&destination).unwrap();
@@ -102,16 +127,37 @@ fn main() {
 
             let gist_names = user_repos.gists;
             println!("Checking {0} GitHub gists for updates…", gist_names.len());
-            for (i, name) in gist_names.iter().enumerate() {
-                print!("\r{0}/{1} ", i + 1, &gist_names.len());
-                io::stdout().flush().unwrap();
+            if args.workers > 1 {
+                gist_names.par_iter().for_each(|name| {
+                    let url = format!("https://gist.github.com/{0}.git", name);
+                    let username = &github.user;
+                    let password = &github.token;
+                    clone_or_fetch_bare(
+                        &gists_dir,
+                        name,
+                        &url,
+                        dry_run,
+                        Some((username, password)),
+                    );
+                });
+            } else {
+                for (i, name) in gist_names.iter().enumerate() {
+                    print!("\r{0}/{1} ", i + 1, &gist_names.len());
+                    io::stdout().flush().unwrap();
 
-                let url = format!("https://gist.github.com/{0}.git", &name);
-                let username = &github.user;
-                let password = &github.token;
-                clone_or_fetch_bare(&gists_dir, &name, &url, dry_run, Some((username, password)));
+                    let url = format!("https://gist.github.com/{0}.git", &name);
+                    let username = &github.user;
+                    let password = &github.token;
+                    clone_or_fetch_bare(
+                        &gists_dir,
+                        &name,
+                        &url,
+                        dry_run,
+                        Some((username, password)),
+                    );
+                }
+                println!("\n");
             }
-            println!("\n");
         }
 
         let mut clone_dir = github_dir;
@@ -138,16 +184,25 @@ fn main() {
             "Checking {0} GitHub repositories for updates…",
             clone_repos.len()
         );
-        for (i, repo) in clone_repos.iter().enumerate() {
-            print!("\r{0}/{1} ", i + 1, &clone_repos.len());
-            io::stdout().flush().unwrap();
+        if args.workers > 1 {
+            clone_repos.par_iter().for_each(|repo| {
+                let url = format!("https://github.com/{0}.git", repo);
+                let username = &github.user;
+                let password = &github.token;
+                clone_or_fetch_bare(&clone_dir, repo, &url, dry_run, Some((username, password)));
+            });
+        } else {
+            for (i, repo) in clone_repos.iter().enumerate() {
+                print!("\r{0}/{1} ", i + 1, &clone_repos.len());
+                io::stdout().flush().unwrap();
 
-            let url = format!("https://github.com/{0}.git", &repo);
-            let username = &github.user;
-            let password = &github.token;
-            clone_or_fetch_bare(&clone_dir, &repo, &url, dry_run, Some((username, password)));
+                let url = format!("https://github.com/{0}.git", &repo);
+                let username = &github.user;
+                let password = &github.token;
+                clone_or_fetch_bare(&clone_dir, &repo, &url, dry_run, Some((username, password)));
+            }
+            println!("\n");
         }
-        println!("\n");
     }
 
     if let Some(git) = config.git {
@@ -158,14 +213,22 @@ fn main() {
             "Checking {0} git repository clones for updates…",
             git.repos.len()
         );
-        for (i, (path, url)) in git.repos.iter().enumerate() {
-            print!("\r{0}/{1} ", i + 1, git.repos.len());
-            io::stdout().flush().unwrap();
+        if args.workers > 1 {
+            let repos: Vec<_> = git.repos.iter().collect();
+            repos.par_iter().for_each(|(path, url)| {
+                let url = url.as_str().unwrap();
+                clone_or_fetch_bare(&git_dir, path, url, dry_run, None)
+            });
+        } else {
+            for (i, (path, url)) in git.repos.iter().enumerate() {
+                print!("\r{0}/{1} ", i + 1, git.repos.len());
+                io::stdout().flush().unwrap();
 
-            let url = url.as_str().unwrap();
-            clone_or_fetch_bare(&git_dir, &path, url, dry_run, None)
+                let url = url.as_str().unwrap();
+                clone_or_fetch_bare(&git_dir, &path, url, dry_run, None)
+            }
+            println!("\n");
         }
-        println!("\n");
     }
 
     println!("Done!");
