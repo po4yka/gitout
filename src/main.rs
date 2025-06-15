@@ -23,6 +23,7 @@ fn main() {
     if args.workers > 1 {
         ThreadPoolBuilder::new()
             .num_threads(args.workers)
+            .thread_name(|i| format!("gitout-worker-{}", i))
             .build_global()
             .unwrap();
     }
@@ -31,7 +32,14 @@ fn main() {
         sync_once(&args);
 
         if let Some(interval) = args.interval {
-            thread::sleep(Duration::from_secs(interval));
+            thread::Builder::new()
+                .name("gitout-sync".to_string())
+                .spawn(move || {
+                    thread::sleep(Duration::from_secs(interval));
+                })
+                .unwrap()
+                .join()
+                .unwrap();
         } else {
             break;
         }
@@ -59,16 +67,17 @@ fn sync_once(args: &args::Args) {
     }
 
     // Check if config path exists and is a file
-    let config_metadata = fs::metadata(&config_path).unwrap_or_else(|e| {
-        panic!("Failed to access config file at {:?}: {}", config_path, e)
-    });
+    let config_metadata = fs::metadata(&config_path)
+        .unwrap_or_else(|e| panic!("Failed to access config file at {:?}: {}", config_path, e));
     if config_metadata.is_dir() {
-        panic!("Config path {:?} is a directory, but must be a file", config_path);
+        panic!(
+            "Config path {:?} is a directory, but must be a file",
+            config_path
+        );
     }
 
-    let config = fs::read_to_string(&config_path).unwrap_or_else(|e| {
-        panic!("Failed to read config file at {:?}: {}", config_path, e)
-    });
+    let config = fs::read_to_string(&config_path)
+        .unwrap_or_else(|e| panic!("Failed to read config file at {:?}: {}", config_path, e));
     let mut config = config::parse_config(&config).unwrap();
     if let Some(ref mut github) = config.github {
         if starred {
