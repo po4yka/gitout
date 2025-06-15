@@ -58,7 +58,17 @@ fn sync_once(args: &args::Args) {
         }
     }
 
-    let config = fs::read_to_string(config).unwrap();
+    // Check if config path exists and is a file
+    let config_metadata = fs::metadata(&config).unwrap_or_else(|e| {
+        panic!("Failed to access config file at {:?}: {}", config, e)
+    });
+    if config_metadata.is_dir() {
+        panic!("Config path {:?} is a directory, but must be a file", config);
+    }
+
+    let config = fs::read_to_string(config).unwrap_or_else(|e| {
+        panic!("Failed to read config file at {:?}: {}", config, e)
+    });
     let mut config = config::parse_config(&config).unwrap();
     if let Some(ref mut github) = config.github {
         if starred {

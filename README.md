@@ -36,16 +36,19 @@ The binary is available inside the `po4yka/gitout` Docker container which can ru
  [layers]: https://hub.docker.com/r/po4yka/gitout
 
 Mount a `/data` volume which is where the repositories will be stored.
-Mount the `/config` folder which contains a `config.toml` or mount a `/config/config.toml` file directly.
+Mount the `/app/config.toml` file directly with your configuration.
 Specify a `CRON` environment variable with a cron specifier dictating the schedule for when the tool should run.
 
-```
+```bash
 $ docker run -d \
     -v /path/to/data:/data \
-    -v /path/to/config.toml:/config/config.toml \
+    -v /path/to/config.toml:/app/config.toml:ro \
     -e "CRON=0 * * * *" \
     po4yka/gitout \
-    --owned --starred --watched
+    /app/gitout \
+    --owned --starred --watched \
+    /app/config.toml \
+    /data
 ```
 
 For help creating a valid cron specifier, visit [cron.help](https://cron.help/#0_*_*_*_*).
@@ -54,7 +57,7 @@ To be notified when sync is failing visit https://healthchecks.io, create a chec
 
 To write data as a particular user, the `PUID` and `PGID` environment variables can be set to your user ID and group ID, respectively.
 
-If you're using Docker Compose, an example setup looks like;
+If you're using Docker Compose, an example setup looks like:
 ```yaml
 services:
   gitout:
@@ -62,14 +65,25 @@ services:
     restart: unless-stopped
     volumes:
       - /path/to/data:/data
-      - /path/to/config:/config
-    command: --owned --starred --watched
+      - /path/to/config.toml:/app/config.toml:ro
+    command: >
+      /app/gitout
+      --owned --starred --watched
+      /app/config.toml
+      /data
     environment:
       - "CRON=0 * * * *"
-      #Optional:
+      # Optional:
       - "HEALTHCHECK_ID=..."
       - "PUID=..."
       - "PGID=..."
+      - "GITHUB_TOKEN_FILE=/run/secrets/github_pat"  # If using Docker secrets
+    secrets:
+      - github_pat  # If using Docker secrets
+
+secrets:
+  github_pat:
+    file: /path/to/github_token.txt  # Path to your GitHub token file
 ```
 
 Note: You may want to specify an explicit version rather than `latest`.
