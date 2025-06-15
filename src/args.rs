@@ -41,9 +41,17 @@ struct CliArgs {
     /// Include repositories you watch
     #[arg(long)]
     watched: bool,
+
+    /// Run periodically with the given interval in seconds
+    #[arg(long)]
+    interval: Option<u64>,
+
+    /// Number of worker threads to use when cloning
+    #[arg(long, default_value_t = 1)]
+    workers: usize,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Args {
     pub config: PathBuf,
     pub destination: PathBuf,
@@ -53,6 +61,8 @@ pub struct Args {
     pub owned: bool,
     pub starred: bool,
     pub watched: bool,
+    pub interval: Option<u64>,
+    pub workers: usize,
 }
 
 pub fn parse_args() -> Args {
@@ -78,6 +88,8 @@ where
         owned: cli.owned,
         starred: cli.starred,
         watched: cli.watched,
+        interval: cli.interval,
+        workers: cli.workers,
     })
 }
 
@@ -118,6 +130,10 @@ mod tests {
             "--owned",
             "--stars",
             "--watched",
+            "--interval",
+            "60",
+            "--workers",
+            "4",
         ]);
 
         assert_eq!(args.config, PathBuf::from("config.toml"));
@@ -128,6 +144,8 @@ mod tests {
         assert!(args.owned);
         assert!(args.starred);
         assert!(args.watched);
+        assert_eq!(args.interval, Some(60));
+        assert_eq!(args.workers, 4);
     }
 
     #[test]
