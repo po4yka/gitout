@@ -14,6 +14,9 @@ mod args;
 mod config;
 mod github;
 
+/// Number of attempts to retry a fetch operation upon failure.
+const FETCH_RETRIES: usize = 3;
+
 fn main() {
     let args = args::parse_args();
     if args.verbose {
@@ -299,17 +302,44 @@ fn clone_or_fetch_bare(
                 fs::remove_file(&repo_dir).unwrap();
             }
 
-            let repository: Repository;
+            let git_repo: Repository;
             let mut origin = if repo_exists {
-                repository = Repository::open_bare(&repo_dir).unwrap();
-                repository.find_remote("origin").unwrap()
+                git_repo = Repository::open_bare(&repo_dir).unwrap();
+                git_repo.find_remote("origin").unwrap()
             } else {
                 fs::create_dir_all(&repo_dir).unwrap();
-                repository = Repository::init_bare(&repo_dir).unwrap();
-                repository.remote("origin", url).unwrap()
+                git_repo = Repository::init_bare(&repo_dir).unwrap();
+                git_repo.remote("origin", url).unwrap()
             };
 
-            origin.fetch(&[] as &[String], Some(&mut fo), None).unwrap();
+            let mut attempts = 0;
+            loop {
+                match origin.fetch(&[] as &[String], Some(&mut fo), None) {
+                    Ok(_) => break,
+                    Err(e) => {
+                        attempts += 1;
+                        if attempts >= FETCH_RETRIES {
+                            eprintln!(
+                                "Failed to synchronize {repo} from {url} after {attempts} attempts: {error}",
+                                repo = repository,
+                                url = url,
+                                attempts = attempts,
+                                error = e
+                            );
+                            return;
+                        }
+
+                        eprintln!(
+                            "Attempt {attempt} to synchronize {repo} from {url} failed: {error}. Retrying…",
+                            attempt = attempts,
+                            repo = repository,
+                            url = url,
+                            error = e
+                        );
+                        thread::sleep(Duration::from_secs(2));
+                    }
+                }
+            }
         }
     }
 
