@@ -14,6 +14,9 @@ mod args;
 mod config;
 mod github;
 
+/// Number of attempts to retry a fetch operation upon failure.
+const FETCH_RETRIES: usize = 3;
+
 fn main() {
     let args = args::parse_args();
     if args.verbose {
@@ -309,14 +312,33 @@ fn clone_or_fetch_bare(
                 git_repo.remote("origin", url).unwrap()
             };
 
-            if let Err(e) = origin.fetch(&[] as &[String], Some(&mut fo), None) {
-                eprintln!(
-                    "Failed to synchronize {repo} from {url}: {error}",
-                    repo = repository,
-                    url = url,
-                    error = e
-                );
-                return;
+            let mut attempts = 0;
+            loop {
+                match origin.fetch(&[] as &[String], Some(&mut fo), None) {
+                    Ok(_) => break,
+                    Err(e) => {
+                        attempts += 1;
+                        if attempts >= FETCH_RETRIES {
+                            eprintln!(
+                                "Failed to synchronize {repo} from {url} after {attempts} attempts: {error}",
+                                repo = repository,
+                                url = url,
+                                attempts = attempts,
+                                error = e
+                            );
+                            return;
+                        }
+
+                        eprintln!(
+                            "Attempt {attempt} to synchronize {repo} from {url} failed: {error}. Retrying…",
+                            attempt = attempts,
+                            repo = repository,
+                            url = url,
+                            error = e
+                        );
+                        thread::sleep(Duration::from_secs(2));
+                    }
+                }
             }
         }
     }
