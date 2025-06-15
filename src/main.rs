@@ -299,17 +299,25 @@ fn clone_or_fetch_bare(
                 fs::remove_file(&repo_dir).unwrap();
             }
 
-            let repository: Repository;
+            let git_repo: Repository;
             let mut origin = if repo_exists {
-                repository = Repository::open_bare(&repo_dir).unwrap();
-                repository.find_remote("origin").unwrap()
+                git_repo = Repository::open_bare(&repo_dir).unwrap();
+                git_repo.find_remote("origin").unwrap()
             } else {
                 fs::create_dir_all(&repo_dir).unwrap();
-                repository = Repository::init_bare(&repo_dir).unwrap();
-                repository.remote("origin", url).unwrap()
+                git_repo = Repository::init_bare(&repo_dir).unwrap();
+                git_repo.remote("origin", url).unwrap()
             };
 
-            origin.fetch(&[] as &[String], Some(&mut fo), None).unwrap();
+            if let Err(e) = origin.fetch(&[] as &[String], Some(&mut fo), None) {
+                eprintln!(
+                    "Failed to synchronize {repo} from {url}: {error}",
+                    repo = repository,
+                    url = url,
+                    error = e
+                );
+                return;
+            }
         }
     }
 
