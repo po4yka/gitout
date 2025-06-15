@@ -63,25 +63,49 @@ fn sync_once(args: &args::Args) {
     } = args.clone();
 
     if !dry_run {
-        let destination_metadata = fs::metadata(&destination).unwrap();
+        let destination_metadata = match fs::metadata(&destination) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("Failed to access destination {:?}: {}", destination, e);
+                return;
+            }
+        };
         if !destination_metadata.is_dir() {
-            panic!("Destination must exist and must be a directory")
+            eprintln!("Destination must exist and must be a directory");
+            return;
         }
     }
 
     // Check if config path exists and is a file
-    let config_metadata = fs::metadata(&config_path)
-        .unwrap_or_else(|e| panic!("Failed to access config file at {:?}: {}", config_path, e));
+    let config_metadata = match fs::metadata(&config_path) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Failed to access config file at {:?}: {}", config_path, e);
+            return;
+        }
+    };
     if config_metadata.is_dir() {
-        panic!(
+        eprintln!(
             "Config path {:?} is a directory, but must be a file",
             config_path
         );
+        return;
     }
 
-    let config = fs::read_to_string(&config_path)
-        .unwrap_or_else(|e| panic!("Failed to read config file at {:?}: {}", config_path, e));
-    let mut config = config::parse_config(&config).unwrap();
+    let config = match fs::read_to_string(&config_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Failed to read config file at {:?}: {}", config_path, e);
+            return;
+        }
+    };
+    let mut config = match config::parse_config(&config) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Failed to parse config file at {:?}: {}", config_path, e);
+            return;
+        }
+    };
     if let Some(ref mut github) = config.github {
         if starred {
             github.clone.starred = true;
