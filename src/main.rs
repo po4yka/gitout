@@ -8,7 +8,6 @@ use std::{fs, io};
 use git2::{Cred, FetchOptions, RemoteCallbacks, Repository};
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
-use reqwest::blocking::Client;
 
 mod args;
 mod config;
@@ -95,18 +94,11 @@ fn sync_once(args: &args::Args) {
     }
 
     if let Some(github) = config.github {
-        static APP_USER_AGENT: &str =
-            concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
-
-        // TODO make this owned by a GitHub struct so it can be entirely encapsulated in github.rs.
-        let client = Client::builder()
-            .user_agent(APP_USER_AGENT)
-            .build()
-            .unwrap();
+        let github_client = github::GitHub::new();
 
         println!("Querying GitHub information for {0}…", &github.user);
         io::stdout().flush().unwrap();
-        let user_repos = github::user_repos(&client, &github.user, &github.token);
+        let user_repos = github_client.user_repos(&github.user, &github.token);
         if verbose {
             dbg!(&user_repos);
         }
@@ -136,7 +128,7 @@ fn sync_once(args: &args::Args) {
                 );
                 io::stdout().flush().unwrap();
 
-                github::archive_repo(&client, archive_dir.as_path(), &repo, &github.token);
+                github_client.archive_repo(archive_dir.as_path(), &repo, &github.token);
 
                 println!("Done");
             }
