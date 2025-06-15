@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Error};
+use clap::{Error, Parser};
 use std::ffi::OsString;
 
 #[derive(Debug, PartialEq, Parser)]
@@ -138,12 +138,7 @@ mod tests {
 
     #[test]
     fn parse_from_dest_flag() {
-        let args = parse_from([
-            "gitout",
-            "--dest",
-            "out",
-            "config.toml",
-        ]);
+        let args = parse_from(["gitout", "--dest", "out", "config.toml"]);
 
         assert_eq!(args.destination, PathBuf::from("out"));
     }
