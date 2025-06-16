@@ -85,7 +85,6 @@ fn sync_once(args: &args::Args) {
         config: config_path,
         destination,
         verbose,
-        experimental_archive: _, // Mark as intentionally unused
         dry_run,
         owned,
         starred,
@@ -159,31 +158,6 @@ fn sync_once(args: &args::Args) {
 
         let user_repos = github::GitHub::new().user_repos(&github.user, &github.token);
 
-        let mut archive_repos = vec![];
-        if github.archive.owned {
-            let mut archive_dir = github_dir.clone();
-            archive_dir.push("archive");
-
-            archive_repos = user_repos.owned.clone();
-            println!(
-                "Checking {0} GitHub repositories for archiving…",
-                archive_repos.len()
-            );
-            if args.workers > 1 {
-                archive_repos.par_iter().for_each(|repository| {
-                    let password = &github.token;
-                    github::GitHub::new().archive_repo(&archive_dir, repository, password);
-                });
-            } else {
-                for (i, repository) in archive_repos.iter().enumerate() {
-                    println!("({}/{})", i + 1, archive_repos.len());
-
-                    let password = &github.token;
-                    github::GitHub::new().archive_repo(&archive_dir, repository, password);
-                }
-            }
-        }
-
         if github.clone.gists {
             let mut gists_dir = github_dir.clone();
             gists_dir.push("gists");
@@ -230,7 +204,6 @@ fn sync_once(args: &args::Args) {
         if owned {
             clone_repos.extend(user_repos.owned.clone());
         }
-        clone_repos.extend(archive_repos);
         clone_repos.extend(github.clone.repos.clone());
         if github.clone.starred {
             clone_repos.extend(user_repos.starred);
@@ -297,14 +270,11 @@ fn sync_once(args: &args::Args) {
         } else {
             for (i, (path, url)) in git.repos.iter().enumerate() {
                 println!("({}/{})", i + 1, git.repos.len());
-
                 let url = url.as_str().unwrap();
                 clone_or_fetch_bare(&git_dir, path, url, dry_run, None, &config.ssl);
             }
         }
     }
-
-    println!("Done!");
 }
 
 fn clone_or_fetch_bare(

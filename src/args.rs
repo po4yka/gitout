@@ -22,10 +22,6 @@ struct CliArgs {
     #[arg(short, long)]
     verbose: bool,
 
-    /// Enable experimental repository archiving
-    #[arg(long)]
-    experimental_archive: bool,
-
     /// Print actions instead of performing them
     #[arg(long)]
     dry_run: bool,
@@ -56,7 +52,6 @@ pub struct Args {
     pub config: PathBuf,
     pub destination: PathBuf,
     pub verbose: bool,
-    pub experimental_archive: bool,
     pub dry_run: bool,
     pub owned: bool,
     pub starred: bool,
@@ -83,7 +78,6 @@ where
         config: cli.config,
         destination,
         verbose: cli.verbose,
-        experimental_archive: cli.experimental_archive,
         dry_run: cli.dry_run,
         owned: cli.owned,
         starred: cli.starred,
@@ -125,7 +119,6 @@ mod tests {
             "config.toml",
             "dest",
             "-v",
-            "--experimental-archive",
             "--dry-run",
             "--owned",
             "--stars",
@@ -139,7 +132,6 @@ mod tests {
         assert_eq!(args.config, PathBuf::from("config.toml"));
         assert_eq!(args.destination, PathBuf::from("dest"));
         assert!(args.verbose);
-        assert!(args.experimental_archive);
         assert!(args.dry_run);
         assert!(args.owned);
         assert!(args.starred);

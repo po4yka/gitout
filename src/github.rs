@@ -19,12 +19,6 @@ use serde::Serialize;
 struct UserRepos;
 
 const APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
-/// Accept header required for user migrations API.
-/// https://docs.github.com/rest/migrations/users#start-a-user-migration
-const GITHUB_ACCEPT: &str = "application/vnd.github+json";
-/// API version header for GitHub requests.
-/// The migrations API only supports the 2022-11-28 version as of now.
-const GITHUB_API_VERSION: &str = "2022-11-28";
 
 pub struct GitHub {
     client: Client,
@@ -111,185 +105,12 @@ impl GitHub {
             gists: gists_repos,
         }
     }
-
-    pub fn archive_repo(&self, dir: &Path, repository: &str, token: &str) {
-        let migration_request = MigrationRequest {
-            repositories: vec![repository.to_owned()],
-        };
-        let create_response: MigrationResponse = match self
-            .client
-            .post("https://api.github.com/user/migrations")
-            .bearer_auth(token)
-            .header(ACCEPT, GITHUB_ACCEPT)
-            .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
-            .json(&migration_request)
-            .send()
-            .and_then(reqwest::blocking::Response::error_for_status)
-        {
-            Ok(resp) => match resp.json() {
-                Ok(json) => json,
-                Err(e) => {
-                    eprintln!(
-                        "Failed to parse migration creation response for {repo}: {error}",
-                        repo = repository,
-                        error = e
-                    );
-                    return;
-                }
-            },
-            Err(e) => {
-                eprintln!(
-                    "Failed to create migration for {repo}: {error}",
-                    repo = repository,
-                    error = e
-                );
-                if let Some(status) = e.status() {
-                    eprintln!("GitHub API status: {status}");
-                }
-                if let Some(url) = e.url() {
-                    eprintln!("GitHub API URL: {url}");
-                }
-                return;
-            }
-        };
-        let migration_id = create_response.id;
-        let mut migration_state = create_response.state;
-
-        let mut wait = Duration::from_secs(2);
-        loop {
-            if migration_state == "exported" {
-                break;
-            }
-            if migration_state == "failed" {
-                panic!("Creating migration for {} failed", &repository);
-            }
-
-            thread::sleep(wait);
-            if wait < Duration::from_secs(64) {
-                wait *= 2
-            }
-
-            let status_url = format!("https://api.github.com/user/migrations/{0}", migration_id);
-            let status_response: MigrationResponse = match self
-                .client
-                .get(&status_url)
-                .bearer_auth(token)
-                .header(ACCEPT, GITHUB_ACCEPT)
-                .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
-                .send()
-                .and_then(reqwest::blocking::Response::error_for_status)
-            {
-                Ok(resp) => match resp.json() {
-                    Ok(json) => json,
-                    Err(e) => {
-                        eprintln!(
-                            "Failed to parse migration status for {repo}: {error}",
-                            repo = repository,
-                            error = e
-                        );
-                        return;
-                    }
-                },
-                Err(e) => {
-                    eprintln!(
-                        "Failed to check migration status for {repo}: {error}",
-                        repo = repository,
-                        error = e
-                    );
-                    if let Some(status) = e.status() {
-                        eprintln!("GitHub API status: {status}");
-                    }
-                    if let Some(url) = e.url() {
-                        eprintln!("GitHub API URL: {url}");
-                    }
-                    return;
-                }
-            };
-            migration_state = status_response.state;
-        }
-
-        // In order to never lose data if we crash we must perform a dance to update archives:
-        // 1. Download the new archive to repo.zip.new.
-        // 2. Delete the old archive repo.zip.
-        // 3. Rename the new archive from repo.zip.new to repo.zip.
-
-        let mut archive_old = dir.to_path_buf();
-        archive_old.push(format!("{0}.zip", &repository));
-        let mut archive_new = dir.to_path_buf();
-        archive_new.push(format!("{0}.zip.new", &repository));
-
-        let mut archive_dir = archive_old.clone();
-        archive_dir.pop();
-        if !fs::metadata(&archive_dir).map_or_else(|_| false, |m| m.is_dir()) {
-            fs::create_dir_all(&archive_dir).unwrap();
-        }
-
-        let archive_old_exists = fs::metadata(&archive_old).map_or_else(|_| false, |m| m.is_file());
-        let archive_new_exists = fs::metadata(&archive_new).map_or_else(|_| false, |m| m.is_file());
-
-        if archive_new_exists {
-            fs::remove_file(&archive_new).unwrap();
-        }
-
-        // Step 1:
-        let download_url = format!(
-            "https://api.github.com/user/migrations/{0}/archive",
-            migration_id
-        );
-        let mut download_request = match self
-            .client
-            .get(&download_url)
-            .bearer_auth(token)
-            .header(ACCEPT, GITHUB_ACCEPT)
-            .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
-            .send()
-            .and_then(reqwest::blocking::Response::error_for_status)
-        {
-            Ok(resp) => resp,
-            Err(e) => {
-                eprintln!(
-                    "Failed to download archive for {repo}: {error}",
-                    repo = repository,
-                    error = e
-                );
-                if let Some(status) = e.status() {
-                    eprintln!("GitHub API status: {status}");
-                }
-                if let Some(url) = e.url() {
-                    eprintln!("GitHub API URL: {url}");
-                }
-                return;
-            }
-        };
-
-        let mut archive_file = File::create(&archive_new).unwrap();
-        copy(&mut download_request, &mut archive_file).unwrap();
-
-        // Step 2:
-        if archive_old_exists {
-            fs::remove_file(&archive_old).unwrap();
-        }
-
-        // Step 3:
-        fs::rename(&archive_new, &archive_old).unwrap();
-    }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct Repositories {
     pub owned: Vec<String>,
     pub starred: Vec<String>,
     pub watched: Vec<String>,
     pub gists: Vec<String>,
-}
-
-#[derive(Serialize)]
-struct MigrationRequest {
-    repositories: Vec<String>,
-}
-
-#[derive(Deserialize)]
-struct MigrationResponse {
-    id: u64,
-    state: String,
 }
