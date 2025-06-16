@@ -1,10 +1,10 @@
 use std::collections::HashSet;
+use std::env;
 use std::io::Write;
 use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 use std::{fs, io};
-use std::env;
 
 use git2::{Cred, FetchOptions, RemoteCallbacks, Repository};
 use rayon::prelude::*;
@@ -61,7 +61,7 @@ fn sync_once(args: &args::Args) {
         config: config_path,
         destination,
         verbose,
-        experimental_archive: _,  // Mark as intentionally unused
+        experimental_archive: _, // Mark as intentionally unused
         dry_run,
         owned,
         starred,
@@ -148,11 +148,7 @@ fn sync_once(args: &args::Args) {
             if args.workers > 1 {
                 archive_repos.par_iter().for_each(|repository| {
                     let password = &github.token;
-                    github::GitHub::new().archive_repo(
-                        &archive_dir,
-                        repository,
-                        password,
-                    );
+                    github::GitHub::new().archive_repo(&archive_dir, repository, password);
                 });
             } else {
                 for (i, repository) in archive_repos.iter().enumerate() {
@@ -160,11 +156,7 @@ fn sync_once(args: &args::Args) {
                     io::stdout().flush().unwrap();
 
                     let password = &github.token;
-                    github::GitHub::new().archive_repo(
-                        &archive_dir,
-                        repository,
-                        password,
-                    );
+                    github::GitHub::new().archive_repo(&archive_dir, repository, password);
                 }
                 println!("\n");
             }
@@ -240,7 +232,14 @@ fn sync_once(args: &args::Args) {
                 let url = format!("https://github.com/{0}.git", repo);
                 let username = &github.user;
                 let password = &github.token;
-                clone_or_fetch_bare(&clone_dir, repo, &url, dry_run, Some((username, password)), &config.ssl);
+                clone_or_fetch_bare(
+                    &clone_dir,
+                    repo,
+                    &url,
+                    dry_run,
+                    Some((username, password)),
+                    &config.ssl,
+                );
             });
         } else {
             for (i, repo) in clone_repos.iter().enumerate() {
@@ -250,7 +249,14 @@ fn sync_once(args: &args::Args) {
                 let url = format!("https://github.com/{0}.git", &repo);
                 let username = &github.user;
                 let password = &github.token;
-                clone_or_fetch_bare(&clone_dir, &repo, &url, dry_run, Some((username, password)), &config.ssl);
+                clone_or_fetch_bare(
+                    &clone_dir,
+                    &repo,
+                    &url,
+                    dry_run,
+                    Some((username, password)),
+                    &config.ssl,
+                );
             }
             println!("\n");
         }
@@ -291,7 +297,7 @@ fn clone_or_fetch_bare(
     url: &str,
     dry_run: bool,
     credentials: Option<(&str, &str)>,
-    _ssl_config: &config::SslConfig,  // Mark as intentionally unused
+    _ssl_config: &config::SslConfig, // Mark as intentionally unused
 ) {
     let mut updated = false;
 
