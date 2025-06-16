@@ -7,6 +7,8 @@ pub struct Config {
     pub version: u32,
     pub github: Option<GitHub>,
     pub git: Option<Git>,
+    #[serde(default)]
+    pub ssl: SslConfig,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -68,6 +70,30 @@ pub struct Git {
     pub repos: Table,
 }
 
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct SslConfig {
+    #[serde(default = "default_ssl_backend")]
+    pub backend: String,
+    #[serde(default)]
+    pub verify_certificates: bool,
+    #[serde(default)]
+    pub cert_file: Option<String>,
+}
+
+fn default_ssl_backend() -> String {
+    "openssl".to_string()
+}
+
+impl Default for SslConfig {
+    fn default() -> Self {
+        SslConfig {
+            backend: default_ssl_backend(),
+            verify_certificates: true,
+            cert_file: None,
+        }
+    }
+}
+
 pub fn parse_config(s: &str) -> Result<Config, Error> {
     toml::from_str(s)
 }
@@ -89,6 +115,11 @@ mod test {
             version: 0,
             github: None,
             git: None,
+            ssl: SslConfig {
+                backend: "openssl".to_string(),
+                verify_certificates: true,
+                cert_file: None,
+            },
         };
         assert_eq!(actual, expected)
     }
@@ -145,6 +176,11 @@ mod test {
                 },
             }),
             git: Some(Git { repos }),
+            ssl: SslConfig {
+                backend: "openssl".to_string(),
+                verify_certificates: true,
+                cert_file: None,
+            },
         };
         assert_eq!(actual, expected)
     }

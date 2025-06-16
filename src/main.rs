@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 use std::{fs, io};
+use std::env;
 
 use git2::{Cred, FetchOptions, RemoteCallbacks, Repository};
 use rayon::prelude::*;
@@ -15,6 +16,20 @@ mod github;
 
 /// Number of attempts to retry a fetch operation upon failure.
 const FETCH_RETRIES: usize = 3;
+
+fn setup_ssl(config: &config::SslConfig) {
+    // Set SSL backend
+    if let Err(e) = git2::opts::set_ssl_backend(&config.backend) {
+        eprintln!("Warning: Failed to set SSL backend '{}': {}", config.backend, e);
+    }
+
+    // Set SSL certificate file if specified
+    if let Some(cert_file) = &config.cert_file {
+        if let Err(e) = env::set_var("SSL_CERT_FILE", cert_file) {
+            eprintln!("Warning: Failed to set SSL_CERT_FILE: {}", e);
+        }
+    }
+}
 
 fn main() {
     let args = args::parse_args();
@@ -105,6 +120,10 @@ fn sync_once(args: &args::Args) {
             return;
         }
     };
+
+    // Initialize SSL settings
+    setup_ssl(&config.ssl);
+
     if let Some(ref mut github) = config.github {
         if starred {
             github.clone.starred = true;
@@ -176,6 +195,7 @@ fn sync_once(args: &args::Args) {
                         &url,
                         dry_run,
                         Some((username, password)),
+                        &config.ssl,
                     );
                 });
             } else {
@@ -192,6 +212,7 @@ fn sync_once(args: &args::Args) {
                         &url,
                         dry_run,
                         Some((username, password)),
+                        &config.ssl,
                     );
                 }
                 println!("\n");
@@ -227,7 +248,7 @@ fn sync_once(args: &args::Args) {
                 let url = format!("https://github.com/{0}.git", repo);
                 let username = &github.user;
                 let password = &github.token;
-                clone_or_fetch_bare(&clone_dir, repo, &url, dry_run, Some((username, password)));
+                clone_or_fetch_bare(&clone_dir, repo, &url, dry_run, Some((username, password)), &config.ssl);
             });
         } else {
             for (i, repo) in clone_repos.iter().enumerate() {
@@ -237,7 +258,7 @@ fn sync_once(args: &args::Args) {
                 let url = format!("https://github.com/{0}.git", &repo);
                 let username = &github.user;
                 let password = &github.token;
-                clone_or_fetch_bare(&clone_dir, &repo, &url, dry_run, Some((username, password)));
+                clone_or_fetch_bare(&clone_dir, &repo, &url, dry_run, Some((username, password)), &config.ssl);
             }
             println!("\n");
         }
@@ -255,7 +276,7 @@ fn sync_once(args: &args::Args) {
             let repos: Vec<_> = git.repos.iter().collect();
             repos.par_iter().for_each(|(path, url)| {
                 let url = url.as_str().unwrap();
-                clone_or_fetch_bare(&git_dir, path, url, dry_run, None)
+                clone_or_fetch_bare(&git_dir, path, url, dry_run, None, &config.ssl);
             });
         } else {
             for (i, (path, url)) in git.repos.iter().enumerate() {
@@ -263,7 +284,7 @@ fn sync_once(args: &args::Args) {
                 io::stdout().flush().unwrap();
 
                 let url = url.as_str().unwrap();
-                clone_or_fetch_bare(&git_dir, &path, url, dry_run, None)
+                clone_or_fetch_bare(&git_dir, &path, url, dry_run, None, &config.ssl);
             }
             println!("\n");
         }
@@ -278,6 +299,7 @@ fn clone_or_fetch_bare(
     url: &str,
     dry_run: bool,
     credentials: Option<(&str, &str)>,
+    ssl_config: &config::SslConfig,
 ) {
     let mut updated = false;
 
@@ -301,6 +323,11 @@ fn clone_or_fetch_bare(
 
         let mut fo = FetchOptions::new();
         fo.remote_callbacks(callbacks);
+
+        // Configure SSL options
+        let mut ssl_opts = git2::SslOptions::new();
+        ssl_opts.verify_certificates(ssl_config.verify_certificates);
+        fo.ssl_options(ssl_opts);
 
         if !dry_run {
             let mut repo_dir = dir.clone();
