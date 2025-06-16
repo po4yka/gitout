@@ -19,6 +19,8 @@ use serde::Serialize;
 struct UserRepos;
 
 const APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
+const GITHUB_ACCEPT: &str = "application/vnd.github+json";
+const GITHUB_API_VERSION: &str = "2025-06-04";
 
 pub struct GitHub {
     client: Client,
@@ -110,18 +112,36 @@ impl GitHub {
         let migration_request = MigrationRequest {
             repositories: vec![repository.to_owned()],
         };
-        let create_response: MigrationResponse = self
+        let create_response: MigrationResponse = match self
             .client
             .post("https://api.github.com/user/migrations")
             .bearer_auth(token)
-            .header(ACCEPT, "application/vnd.github.wyandotte-preview+json")
+            .header(ACCEPT, GITHUB_ACCEPT)
+            .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
             .json(&migration_request)
             .send()
-            .unwrap()
-            .error_for_status()
-            .unwrap()
-            .json()
-            .unwrap();
+            .and_then(reqwest::blocking::Response::error_for_status)
+        {
+            Ok(resp) => match resp.json() {
+                Ok(json) => json,
+                Err(e) => {
+                    eprintln!(
+                        "Failed to parse migration creation response for {repo}: {error}",
+                        repo = repository,
+                        error = e
+                    );
+                    return;
+                }
+            },
+            Err(e) => {
+                eprintln!(
+                    "Failed to create migration for {repo}: {error}",
+                    repo = repository,
+                    error = e
+                );
+                return;
+            }
+        };
         let migration_id = create_response.id;
         let mut migration_state = create_response.state;
 
@@ -140,17 +160,35 @@ impl GitHub {
             }
 
             let status_url = format!("https://api.github.com/user/migrations/{0}", migration_id);
-            let status_response: MigrationResponse = self
+            let status_response: MigrationResponse = match self
                 .client
                 .get(&status_url)
                 .bearer_auth(token)
-                .header(ACCEPT, "application/vnd.github.wyandotte-preview+json")
+                .header(ACCEPT, GITHUB_ACCEPT)
+                .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
                 .send()
-                .unwrap()
-                .error_for_status()
-                .unwrap()
-                .json()
-                .unwrap();
+                .and_then(reqwest::blocking::Response::error_for_status)
+            {
+                Ok(resp) => match resp.json() {
+                    Ok(json) => json,
+                    Err(e) => {
+                        eprintln!(
+                            "Failed to parse migration status for {repo}: {error}",
+                            repo = repository,
+                            error = e
+                        );
+                        return;
+                    }
+                },
+                Err(e) => {
+                    eprintln!(
+                        "Failed to check migration status for {repo}: {error}",
+                        repo = repository,
+                        error = e
+                    );
+                    return;
+                }
+            };
             migration_state = status_response.state;
         }
 
@@ -182,15 +220,25 @@ impl GitHub {
             "https://api.github.com/user/migrations/{0}/archive",
             migration_id
         );
-        let mut download_request = self
+        let mut download_request = match self
             .client
             .get(&download_url)
             .bearer_auth(token)
-            .header(ACCEPT, "application/vnd.github.wyandotte-preview+json")
+            .header(ACCEPT, GITHUB_ACCEPT)
+            .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
             .send()
-            .unwrap()
-            .error_for_status()
-            .unwrap();
+            .and_then(reqwest::blocking::Response::error_for_status)
+        {
+            Ok(resp) => resp,
+            Err(e) => {
+                eprintln!(
+                    "Failed to download archive for {repo}: {error}",
+                    repo = repository,
+                    error = e
+                );
+                return;
+            }
+        };
 
         let mut archive_file = File::create(&archive_new).unwrap();
         copy(&mut download_request, &mut archive_file).unwrap();
