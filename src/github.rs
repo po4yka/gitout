@@ -143,6 +143,12 @@ impl GitHub {
                     repo = repository,
                     error = e
                 );
+                if let Some(status) = e.status() {
+                    eprintln!("GitHub API status: {status}");
+                }
+                if let Some(url) = e.url() {
+                    eprintln!("GitHub API URL: {url}");
+                }
                 return;
             }
         };
@@ -190,6 +196,12 @@ impl GitHub {
                         repo = repository,
                         error = e
                     );
+                    if let Some(status) = e.status() {
+                        eprintln!("GitHub API status: {status}");
+                    }
+                    if let Some(url) = e.url() {
+                        eprintln!("GitHub API URL: {url}");
+                    }
                     return;
                 }
             };
@@ -240,6 +252,12 @@ impl GitHub {
                     repo = repository,
                     error = e
                 );
+                if let Some(status) = e.status() {
+                    eprintln!("GitHub API status: {status}");
+                }
+                if let Some(url) = e.url() {
+                    eprintln!("GitHub API URL: {url}");
+                }
                 return;
             }
         };
