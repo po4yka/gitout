@@ -32,7 +32,10 @@ FROM debian:bookworm-slim
 ARG TARGETARCH
 RUN apt-get update && \
     apt-get install -y --no-install-recommends bash ca-certificates curl xz-utils && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    update-ca-certificates
+
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 ARG S6_OVERLAY_VERSION=3.2.1.0
 ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz /tmp/
 RUN tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz
