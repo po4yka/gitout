@@ -15,7 +15,14 @@ mod config;
 mod github;
 
 /// Number of attempts to retry a fetch operation upon failure.
-const FETCH_RETRIES: usize = 3;
+const FETCH_RETRIES: usize = 6;
+
+/// Delay (in seconds) between retry attempts.
+const RETRY_DELAY_SECS: u64 = 5;
+
+/// Stagger (in milliseconds) before starting a clone or fetch. This reduces the
+/// thundering-herd effect when many worker threads start at once.
+const STAGGER_MS: u64 = 300;
 
 fn setup_ssl(config: &config::SslConfig) {
     // Set SSL certificate file if specified
@@ -67,6 +74,16 @@ fn setup_ssl(config: &config::SslConfig) {
 
     if !config.verify_certificates {
         env::set_var("GIT_SSL_NO_VERIFY", "1");
+    }
+
+    // Extend libgit2 network timeouts. The defaults can be as low as 15s which
+    // is sometimes not enough when talking to GitHub over slow or flaky
+    // connections.
+    unsafe {
+        // 60 s to establish the TCP/TLS connection.
+        let _ = opts::set_server_connect_timeout_in_milliseconds(60_000);
+        // 10 min overall I/O timeout.
+        let _ = opts::set_server_timeout_in_milliseconds(600_000);
     }
 }
 
@@ -307,6 +324,10 @@ fn clone_or_fetch_bare(
     credentials: Option<(&str, &str)>,
     _ssl_config: &config::SslConfig, // Mark as intentionally unused
 ) {
+    // Stagger requests a bit to avoid hammering the same remote when many
+    // threads start simultaneously.
+    thread::sleep(Duration::from_millis(STAGGER_MS));
+
     let mut updated = false;
 
     {
@@ -404,7 +425,7 @@ fn clone_or_fetch_bare(
                                 "SSL error details: SSL_CERT_FILE='{file}', SSL_CERT_DIR='{dir}'"
                             );
                         }
-                        thread::sleep(Duration::from_secs(2));
+                        thread::sleep(Duration::from_secs(RETRY_DELAY_SECS));
                     }
                 }
             }
