@@ -4,6 +4,7 @@ use std::fs;
 use std::path::Path;
 use std::thread;
 use std::time::Duration;
+use std::process::Command;
 
 use git2::{opts, Cred, ErrorClass, FetchOptions, RemoteCallbacks, Repository};
 use rayon::prelude::*;
@@ -369,6 +370,16 @@ fn clone_or_fetch_bare(
                     Err(e) => {
                         attempts += 1;
                         if attempts >= FETCH_RETRIES {
+                            // As a last-ditch effort, fall back to the git CLI. libgit2 is
+                            // sometimes fragile with TLS (see libgit2/libgit2#5279 and similar
+                            // reports).  If invoking the system `git` succeeds, we treat the
+                            // operation as successful to avoid aborting the whole sync.
+                            if e.class() == ErrorClass::Ssl {
+                                if git_clone_or_fetch_cli(dir, repository, url) {
+                                    println!("Fallback to git CLI succeeded for {repo}", repo = repository);
+                                    break;
+                                }
+                            }
                             eprintln!(
                                 "Failed to synchronize {repo} from {url} after {attempts} attempts: {error}",
                                 repo = repository,
@@ -402,6 +413,42 @@ fn clone_or_fetch_bare(
 
     if updated {
         println!("Finished synchronizing {repo}", repo = repository);
+    }
+}
+
+/// Use the system `git` executable as a fallback when libgit2 trips over TLS problems.
+/// Returns `true` if the git command completed successfully.
+fn git_clone_or_fetch_cli(dir: &Path, repository: &str, url: &str) -> bool {
+    let mut repo_dir = dir.to_path_buf();
+    repo_dir.push(repository);
+
+    let status = if repo_dir.exists() {
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo_dir)
+            .arg("fetch")
+            .arg("--prune")
+            .status()
+    } else {
+        // `--mirror` creates a bare clone and keeps remote refs, similar to libgit2's behaviour.
+        Command::new("git")
+            .arg("clone")
+            .arg("--mirror")
+            .arg(url)
+            .arg(&repo_dir)
+            .status()
+    };
+
+    match status {
+        Ok(s) if s.success() => true,
+        Ok(s) => {
+            eprintln!("git exited with status {s}");
+            false
+        }
+        Err(e) => {
+            eprintln!("Failed to spawn git: {e}");
+            false
+        }
     }
 }
 
