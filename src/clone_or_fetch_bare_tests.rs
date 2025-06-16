@@ -3,6 +3,7 @@ use git2::Repository;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::TempDir;
+use crate::config::SslConfig;
 
 fn git(dir: Option<&Path>, args: &[&str]) {
     let mut cmd = Command::new("git");
@@ -56,8 +57,9 @@ fn add_commit(dir: &Path, msg: &str) -> String {
 fn dry_run_skips_clone() {
     let (temp, remote, _work) = setup_remote();
     let dest = temp.path().join("dest");
+    let ssl_config = SslConfig::default();
 
-    clone_or_fetch_bare(&dest, "repo", remote.to_str().unwrap(), true, None);
+    clone_or_fetch_bare(&dest, "repo", remote.to_str().unwrap(), true, None, &ssl_config);
 
     assert!(!dest.join("repo").exists());
 }
@@ -67,8 +69,9 @@ fn clones_repository() {
     let (temp, remote, work) = setup_remote();
     let dest = temp.path().join("dest");
     let first_commit = head_commit(&work);
+    let ssl_config = SslConfig::default();
 
-    clone_or_fetch_bare(&dest, "repo", remote.to_str().unwrap(), false, None);
+    clone_or_fetch_bare(&dest, "repo", remote.to_str().unwrap(), false, None, &ssl_config);
 
     let repo = Repository::open_bare(dest.join("repo")).unwrap();
     let head = repo.refname_to_id("refs/remotes/origin/master").unwrap();
@@ -79,11 +82,12 @@ fn clones_repository() {
 fn fetches_updates() {
     let (temp, remote, work) = setup_remote();
     let dest = temp.path().join("dest");
-    clone_or_fetch_bare(&dest, "repo", remote.to_str().unwrap(), false, None);
+    let ssl_config = SslConfig::default();
+    clone_or_fetch_bare(&dest, "repo", remote.to_str().unwrap(), false, None, &ssl_config);
 
     let new_commit = add_commit(&work, "update");
 
-    clone_or_fetch_bare(&dest, "repo", remote.to_str().unwrap(), false, None);
+    clone_or_fetch_bare(&dest, "repo", remote.to_str().unwrap(), false, None, &ssl_config);
 
     let repo = Repository::open_bare(dest.join("repo")).unwrap();
     let head = repo.refname_to_id("refs/remotes/origin/master").unwrap();

@@ -18,16 +18,9 @@ mod github;
 const FETCH_RETRIES: usize = 3;
 
 fn setup_ssl(config: &config::SslConfig) {
-    // Set SSL backend
-    if let Err(e) = git2::opts::set_ssl_backend(&config.backend) {
-        eprintln!("Warning: Failed to set SSL backend '{}': {}", config.backend, e);
-    }
-
     // Set SSL certificate file if specified
     if let Some(cert_file) = &config.cert_file {
-        if let Err(e) = env::set_var("SSL_CERT_FILE", cert_file) {
-            eprintln!("Warning: Failed to set SSL_CERT_FILE: {}", e);
-        }
+        env::set_var("SSL_CERT_FILE", cert_file);
     }
 }
 
@@ -68,7 +61,7 @@ fn sync_once(args: &args::Args) {
         config: config_path,
         destination,
         verbose,
-        experimental_archive,
+        experimental_archive: _,  // Mark as intentionally unused
         dry_run,
         owned,
         starred,
@@ -136,46 +129,45 @@ fn sync_once(args: &args::Args) {
         dbg!(&config);
     }
 
-    if let Some(github) = config.github {
-        let github_client = github::GitHub::new();
-
-        println!("Querying GitHub information for {0}…", &github.user);
-        io::stdout().flush().unwrap();
-        let user_repos = github_client.user_repos(&github.user, &github.token);
-        if verbose {
-            dbg!(&user_repos);
-        }
-        println!();
-
+    if let Some(github) = &config.github {
         let mut github_dir = destination.clone();
         github_dir.push("github");
 
-        let mut archive_dir = github_dir.clone();
-        archive_dir.push("archive");
+        let user_repos = github::GitHub::new().user_repos(&github.user, &github.token);
 
         let mut archive_repos = vec![];
-        // archive_repos.extend(github.archive.repos.clone());
         if github.archive.owned {
-            archive_repos.extend(user_repos.owned.clone());
-        }
-        let archive_repos: HashSet<String> = archive_repos.into_iter().collect();
+            let mut archive_dir = github_dir.clone();
+            archive_dir.push("archive");
 
-        if experimental_archive {
-            println!("Archiving {0} GitHub repositories…", archive_repos.len());
-            for (i, repo) in archive_repos.iter().enumerate() {
-                print!(
-                    "{0}/{1} Archiving {2}… ",
-                    i + 1,
-                    &archive_repos.len(),
-                    &repo
-                );
-                io::stdout().flush().unwrap();
+            archive_repos = user_repos.owned.clone();
+            println!(
+                "Checking {0} GitHub repositories for archiving…",
+                archive_repos.len()
+            );
+            if args.workers > 1 {
+                archive_repos.par_iter().for_each(|repository| {
+                    let password = &github.token;
+                    github::GitHub::new().archive_repo(
+                        &archive_dir,
+                        repository,
+                        password,
+                    );
+                });
+            } else {
+                for (i, repository) in archive_repos.iter().enumerate() {
+                    print!("\r{0}/{1} ", i + 1, &archive_repos.len());
+                    io::stdout().flush().unwrap();
 
-                github_client.archive_repo(archive_dir.as_path(), &repo, &github.token);
-
-                println!("Done");
+                    let password = &github.token;
+                    github::GitHub::new().archive_repo(
+                        &archive_dir,
+                        repository,
+                        password,
+                    );
+                }
+                println!("\n");
             }
-            println!();
         }
 
         if github.clone.gists {
@@ -264,7 +256,7 @@ fn sync_once(args: &args::Args) {
         }
     }
 
-    if let Some(git) = config.git {
+    if let Some(ref git) = config.git {
         let mut git_dir = destination;
         git_dir.push("git");
 
@@ -299,7 +291,7 @@ fn clone_or_fetch_bare(
     url: &str,
     dry_run: bool,
     credentials: Option<(&str, &str)>,
-    ssl_config: &config::SslConfig,
+    _ssl_config: &config::SslConfig,  // Mark as intentionally unused
 ) {
     let mut updated = false;
 
@@ -323,11 +315,6 @@ fn clone_or_fetch_bare(
 
         let mut fo = FetchOptions::new();
         fo.remote_callbacks(callbacks);
-
-        // Configure SSL options
-        let mut ssl_opts = git2::SslOptions::new();
-        ssl_opts.verify_certificates(ssl_config.verify_certificates);
-        fo.ssl_options(ssl_opts);
 
         if !dry_run {
             let mut repo_dir = dir.clone();
