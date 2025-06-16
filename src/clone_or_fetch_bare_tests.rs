@@ -1,8 +1,10 @@
-use super::clone_or_fetch_bare;
-use git2::Repository;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use git2::Repository;
 use tempfile::TempDir;
+
+use super::clone_or_fetch_bare;
 use crate::config::SslConfig;
 
 fn git(dir: Option<&Path>, args: &[&str]) {
