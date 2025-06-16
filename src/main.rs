@@ -1,10 +1,9 @@
 use std::collections::HashSet;
 use std::env;
-use std::io::Write;
+use std::fs;
 use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
-use std::{fs, io};
 
 use git2::{Cred, FetchOptions, RemoteCallbacks, Repository};
 use rayon::prelude::*;
@@ -152,13 +151,11 @@ fn sync_once(args: &args::Args) {
                 });
             } else {
                 for (i, repository) in archive_repos.iter().enumerate() {
-                    print!("\r{0}/{1} ", i + 1, &archive_repos.len());
-                    io::stdout().flush().unwrap();
+                    println!("({}/{})", i + 1, archive_repos.len());
 
                     let password = &github.token;
                     github::GitHub::new().archive_repo(&archive_dir, repository, password);
                 }
-                println!("\n");
             }
         }
 
@@ -184,8 +181,7 @@ fn sync_once(args: &args::Args) {
                 });
             } else {
                 for (i, name) in gist_names.iter().enumerate() {
-                    print!("\r{0}/{1} ", i + 1, &gist_names.len());
-                    io::stdout().flush().unwrap();
+                    println!("({}/{})", i + 1, gist_names.len());
 
                     let url = format!("https://gist.github.com/{0}.git", &name);
                     let username = &github.user;
@@ -199,7 +195,6 @@ fn sync_once(args: &args::Args) {
                         &config.ssl,
                     );
                 }
-                println!("\n");
             }
         }
 
@@ -243,8 +238,7 @@ fn sync_once(args: &args::Args) {
             });
         } else {
             for (i, repo) in clone_repos.iter().enumerate() {
-                print!("\r{0}/{1} ", i + 1, &clone_repos.len());
-                io::stdout().flush().unwrap();
+                println!("({}/{})", i + 1, clone_repos.len());
 
                 let url = format!("https://github.com/{0}.git", &repo);
                 let username = &github.user;
@@ -258,7 +252,6 @@ fn sync_once(args: &args::Args) {
                     &config.ssl,
                 );
             }
-            println!("\n");
         }
     }
 
@@ -278,13 +271,11 @@ fn sync_once(args: &args::Args) {
             });
         } else {
             for (i, (path, url)) in git.repos.iter().enumerate() {
-                print!("\r{0}/{1} ", i + 1, git.repos.len());
-                io::stdout().flush().unwrap();
+                println!("({}/{})", i + 1, git.repos.len());
 
                 let url = url.as_str().unwrap();
                 clone_or_fetch_bare(&git_dir, &path, url, dry_run, None, &config.ssl);
             }
-            println!("\n");
         }
     }
 
@@ -310,10 +301,17 @@ fn clone_or_fetch_bare(
             });
         }
 
+        // Emit a log line once the transfer actually starts so that idle
+        // repositories do not produce noise. The callback ensures the log is
+        // printed only once per repository when progress information becomes
+        // available.
         callbacks.transfer_progress(|_progress| {
             if !updated {
-                print!("Synchronizing {0} from {1}… ", &repository, &url);
-                io::stdout().flush().unwrap();
+                println!(
+                    "Synchronizing {repo} from {url}…",
+                    repo = repository,
+                    url = url
+                );
                 updated = true;
             }
             true
@@ -380,7 +378,7 @@ fn clone_or_fetch_bare(
     }
 
     if updated {
-        println!("Done")
+        println!("Finished synchronizing {repo}", repo = repository);
     }
 }
 
