@@ -272,6 +272,21 @@ ignored = [
 asm = "https://gitlab.ow2.org/asm/asm.git"
 ```
 
+### Configuring SSL certificates
+
+`gitout` relies on system SSL certificates to securely connect to remote
+repositories. If your system stores certificates in a non-standard location,
+specify the path in your configuration file under the `ssl` section or set the
+`SSL_CERT_FILE` environment variable.
+
+```toml
+[ssl]
+cert_file = "/etc/ssl/certs/ca-certificates.crt"  # Path to your certificate bundle
+```
+
+When no certificate path is configured, `gitout` will attempt a few common
+locations such as `/etc/ssl/certs/ca-certificates.crt` and `/usr/lib/ssl/cert.pem`.
+
 ### Creating a GitHub token
 
   1. Visit https://github.com/settings/tokens
