@@ -1,14 +1,5 @@
-use std::fs::File;
-use std::io::copy;
-use std::path::Path;
-use std::time::Duration;
-use std::{fs, thread};
-
 use graphql_client::{GraphQLQuery, Response};
 use reqwest::blocking::Client;
-use reqwest::header::ACCEPT;
-use serde::Deserialize;
-use serde::Serialize;
 
 #[derive(GraphQLQuery)]
 #[graphql(

@@ -2,9 +2,9 @@ use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 use std::thread;
 use std::time::Duration;
-use std::process::Command;
 
 use git2::{opts, Cred, ErrorClass, FetchOptions, RemoteCallbacks, Repository};
 use rayon::prelude::*;
@@ -397,7 +397,10 @@ fn clone_or_fetch_bare(
                             // operation as successful to avoid aborting the whole sync.
                             if e.class() == ErrorClass::Ssl {
                                 if git_clone_or_fetch_cli(dir, repository, url) {
-                                    println!("Fallback to git CLI succeeded for {repo}", repo = repository);
+                                    println!(
+                                        "Fallback to git CLI succeeded for {repo}",
+                                        repo = repository
+                                    );
                                     break;
                                 }
                             }
