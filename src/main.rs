@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::Path;
 use std::thread;
 use std::time::Duration;
 
@@ -24,6 +24,21 @@ fn setup_ssl(config: &config::SslConfig) {
         unsafe {
             if let Err(e) = opts::set_ssl_cert_file(cert_file) {
                 eprintln!("Failed to set libgit2 SSL cert file {cert_file}: {e}");
+            }
+        }
+    } else if env::var_os("SSL_CERT_FILE").is_none() {
+        // Attempt a few common paths if the environment variable is unset.
+        for candidate in [
+            "/etc/ssl/certs/ca-certificates.crt",
+            "/etc/ssl/cert.pem",
+            "/usr/lib/ssl/cert.pem",
+        ] {
+            if fs::metadata(candidate).is_ok() {
+                env::set_var("SSL_CERT_FILE", candidate);
+                unsafe {
+                    let _ = opts::set_ssl_cert_file(candidate);
+                }
+                break;
             }
         }
     }
@@ -193,12 +208,12 @@ fn sync_once(args: &args::Args) {
                 for (i, name) in gist_names.iter().enumerate() {
                     println!("({}/{})", i + 1, gist_names.len());
 
-                    let url = format!("https://gist.github.com/{0}.git", &name);
+                    let url = format!("https://gist.github.com/{0}.git", name);
                     let username = &github.user;
                     let password = &github.token;
                     clone_or_fetch_bare(
                         &gists_dir,
-                        &name,
+                        name,
                         &url,
                         dry_run,
                         Some((username, password)),
@@ -250,12 +265,12 @@ fn sync_once(args: &args::Args) {
             for (i, repo) in clone_repos.iter().enumerate() {
                 println!("({}/{})", i + 1, clone_repos.len());
 
-                let url = format!("https://github.com/{0}.git", &repo);
+                let url = format!("https://github.com/{0}.git", repo);
                 let username = &github.user;
                 let password = &github.token;
                 clone_or_fetch_bare(
                     &clone_dir,
-                    &repo,
+                    repo,
                     &url,
                     dry_run,
                     Some((username, password)),
@@ -284,7 +299,7 @@ fn sync_once(args: &args::Args) {
                 println!("({}/{})", i + 1, git.repos.len());
 
                 let url = url.as_str().unwrap();
-                clone_or_fetch_bare(&git_dir, &path, url, dry_run, None, &config.ssl);
+                clone_or_fetch_bare(&git_dir, path, url, dry_run, None, &config.ssl);
             }
         }
     }
@@ -293,7 +308,7 @@ fn sync_once(args: &args::Args) {
 }
 
 fn clone_or_fetch_bare(
-    dir: &PathBuf,
+    dir: &Path,
     repository: &str,
     url: &str,
     dry_run: bool,
@@ -331,7 +346,7 @@ fn clone_or_fetch_bare(
         fo.remote_callbacks(callbacks);
 
         if !dry_run {
-            let mut repo_dir = dir.clone();
+            let mut repo_dir = dir.to_path_buf();
             repo_dir.push(repository);
 
             // Ensure the parent directory exists
