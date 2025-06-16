@@ -289,14 +289,15 @@ locations such as `/etc/ssl/certs/ca-certificates.crt` and `/usr/lib/ssl/cert.pe
 
 ### Creating a GitHub token
 
-  1. Visit https://github.com/settings/tokens
-  2. Click "Generate new token"
-  3. Type "gitout" in the name field
-  4. Select the "repo", "gist", and "read:user" scopes
+1. Visit https://github.com/settings/tokens
+2. Click "Generate new token" under **"Personal access tokens (classic)"**
+3. Type "gitout" in the name field
+4. Select the "repo", "gist", and "read:user" scopes
      - `repo`: Needed to discover and clone private repositories (if you only have public repositories then just `public_repo` will also work)
      - `gist`: Needed to discover and clone private gists (if you only have public gists then this is not required)
      - `read:user`: Needed to traverse your owned, starred, and watched repo lists
-  5. Select "Generate token"
+   - *Fine-grained personal access tokens are **not** supported by the GitHub migrations API.* Use a classic token instead.
+5. Select "Generate token"
   6. Copy the value into your `config.toml` as it will not be shown again
 
 
