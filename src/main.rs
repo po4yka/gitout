@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
-use git2::{Cred, FetchOptions, RemoteCallbacks, Repository};
+use git2::{opts, Cred, ErrorClass, FetchOptions, RemoteCallbacks, Repository};
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 
@@ -20,6 +20,16 @@ fn setup_ssl(config: &config::SslConfig) {
     // Set SSL certificate file if specified
     if let Some(cert_file) = &config.cert_file {
         env::set_var("SSL_CERT_FILE", cert_file);
+        // Also try to configure libgit2 directly
+        unsafe {
+            if let Err(e) = opts::set_ssl_cert_file(cert_file) {
+                eprintln!("Failed to set libgit2 SSL cert file {cert_file}: {e}");
+            }
+        }
+    }
+
+    if !config.verify_certificates {
+        env::set_var("GIT_SSL_NO_VERIFY", "1");
     }
 }
 
@@ -370,6 +380,13 @@ fn clone_or_fetch_bare(
                             url = url,
                             error = e
                         );
+                        if e.class() == ErrorClass::Ssl {
+                            let file = env::var("SSL_CERT_FILE").unwrap_or_default();
+                            let dir = env::var("SSL_CERT_DIR").unwrap_or_default();
+                            eprintln!(
+                                "SSL error details: SSL_CERT_FILE='{file}', SSL_CERT_DIR='{dir}'"
+                            );
+                        }
                         thread::sleep(Duration::from_secs(2));
                     }
                 }
