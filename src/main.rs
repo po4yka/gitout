@@ -20,6 +20,12 @@ fn setup_ssl(config: &config::SslConfig) {
     // Set SSL certificate file if specified
     if let Some(cert_file) = &config.cert_file {
         env::set_var("SSL_CERT_FILE", cert_file);
+        if let Some(dir) = Path::new(cert_file).parent().and_then(|p| p.to_str()) {
+            env::set_var("SSL_CERT_DIR", dir);
+            unsafe {
+                let _ = opts::set_ssl_cert_dir(dir);
+            }
+        }
         // Also try to configure libgit2 directly
         unsafe {
             if let Err(e) = opts::set_ssl_cert_file(cert_file) {
@@ -35,10 +41,25 @@ fn setup_ssl(config: &config::SslConfig) {
         ] {
             if fs::metadata(candidate).is_ok() {
                 env::set_var("SSL_CERT_FILE", candidate);
+                if let Some(dir) = Path::new(candidate).parent().and_then(|p| p.to_str()) {
+                    env::set_var("SSL_CERT_DIR", dir);
+                    unsafe {
+                        let _ = opts::set_ssl_cert_dir(dir);
+                    }
+                }
                 unsafe {
                     let _ = opts::set_ssl_cert_file(candidate);
                 }
                 break;
+            }
+        }
+    } else if env::var_os("SSL_CERT_DIR").is_none() {
+        if let Ok(file) = env::var("SSL_CERT_FILE") {
+            if let Some(dir) = Path::new(&file).parent().and_then(|p| p.to_str()) {
+                env::set_var("SSL_CERT_DIR", dir);
+                unsafe {
+                    let _ = opts::set_ssl_cert_dir(dir);
+                }
             }
         }
     }
