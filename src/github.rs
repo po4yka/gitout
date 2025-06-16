@@ -19,7 +19,9 @@ use serde::Serialize;
 struct UserRepos;
 
 const APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
-const GITHUB_ACCEPT: &str = "application/vnd.github+json";
+/// Accept header required for user migrations API.
+/// https://docs.github.com/rest/migrations/users#start-a-user-migration
+const GITHUB_ACCEPT: &str = "application/vnd.github.wyandotte-preview+json";
 const GITHUB_API_VERSION: &str = "2025-06-04";
 
 pub struct GitHub {
