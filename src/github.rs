@@ -20,6 +20,7 @@ struct UserRepos;
 
 const APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 const GITHUB_ACCEPT: &str = "application/vnd.github+json";
+const GITHUB_API_VERSION: &str = "2025-06-04";
 
 pub struct GitHub {
     client: Client,
@@ -116,6 +117,7 @@ impl GitHub {
             .post("https://api.github.com/user/migrations")
             .bearer_auth(token)
             .header(ACCEPT, GITHUB_ACCEPT)
+            .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
             .json(&migration_request)
             .send()
             .and_then(reqwest::blocking::Response::error_for_status)
@@ -163,6 +165,7 @@ impl GitHub {
                 .get(&status_url)
                 .bearer_auth(token)
                 .header(ACCEPT, GITHUB_ACCEPT)
+                .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
                 .send()
                 .and_then(reqwest::blocking::Response::error_for_status)
             {
@@ -222,6 +225,7 @@ impl GitHub {
             .get(&download_url)
             .bearer_auth(token)
             .header(ACCEPT, GITHUB_ACCEPT)
+            .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
             .send()
             .and_then(reqwest::blocking::Response::error_for_status)
         {
