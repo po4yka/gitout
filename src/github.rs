@@ -22,7 +22,9 @@ const APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PK
 /// Accept header required for user migrations API.
 /// https://docs.github.com/rest/migrations/users#start-a-user-migration
 const GITHUB_ACCEPT: &str = "application/vnd.github.wyandotte-preview+json";
-const GITHUB_API_VERSION: &str = "2025-06-04";
+/// API version header for GitHub requests.
+/// The migrations API only supports the 2022-11-28 version as of now.
+const GITHUB_API_VERSION: &str = "2022-11-28";
 
 pub struct GitHub {
     client: Client,
