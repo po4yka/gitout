@@ -31,7 +31,7 @@ RUN find ./etc -type f -name "*.sh" -exec dos2unix {} + && \
 FROM debian:bookworm-slim
 ARG TARGETARCH
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends bash ca-certificates curl xz-utils && \
+    apt-get install -y --no-install-recommends bash ca-certificates curl xz-utils cronie && \
     rm -rf /var/lib/apt/lists/* && \
     update-ca-certificates
 
