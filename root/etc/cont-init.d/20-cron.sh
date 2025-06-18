@@ -20,7 +20,7 @@ echo "Running as $(id -u):$(id -g)"
 echo "Healthcheck: ${HEALTHCHECK_ID:-<none>}"
 
 # Helpful diagnostics
-which crond
+command -v crond >/dev/null 2>&1 || command -v cron
 ls -l /etc/services.d/cron/run
 
 if [ ! -x /etc/services.d/cron/run ]; then
