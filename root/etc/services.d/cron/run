@@ -6,5 +6,9 @@ set -euo pipefail
 [ "${DEBUG:-0}" = 0 ] || set -x
 
 # Log level 5 (and below) is noisy during periodic wakeup where nothing happens.
-which crond
-/usr/sbin/crond -f -l 6
+daemon="crond"
+if ! command -v "$daemon" >/dev/null; then
+    daemon="cron"
+fi
+which "$daemon"
+/usr/sbin/$daemon -f -l 6
