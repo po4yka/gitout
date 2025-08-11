@@ -1,5 +1,5 @@
 # Build the application using a recent Rust release.
-FROM rust:1.88.0 AS rust
+FROM rust:1.89.0 AS rust
 RUN rustup component add clippy rustfmt
 WORKDIR /app
 COPY Cargo.toml Cargo.lock .rustfmt.toml ./
