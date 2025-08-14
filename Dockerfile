@@ -11,7 +11,7 @@ RUN cargo fmt -- --check
 
 
 # This stage prepares and validates the s6-overlay scripts
-FROM golang:1.24-alpine AS shell
+FROM golang:1.25-alpine AS shell
 # Add dos2unix to explicitly fix line endings, even if the source is clean.
 RUN apk add --no-cache shellcheck dos2unix
 ENV GO111MODULE=on
