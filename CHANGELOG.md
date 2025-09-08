@@ -1,7 +1,13 @@
 # Change Log
 
 ## [Unreleased]
-[Unreleased]: https://github.com/cashapp/redwood/compare/0.18.0...HEAD
+[Unreleased]: https://github.com/JakeWharton/gitout/compare/0.3.0...HEAD
+
+Nothing yet.
+
+
+## [0.3.0] - 2025-09-08
+[0.3.0]: https://github.com/JakeWharton/gitout/releases/tag/0.3.0
 
 New:
 - Rewrite the app in Kotlin (from Rust). Sorry (not sorry).

@@ -27,7 +27,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: gitout.zip
-          path: build/distributions/gitout.zip
+          path: build/distributions/gitout-*.zip
+          if-no-files-found: error
 
       - uses: crazy-max/ghaction-docker-meta@v1
         id: docker_meta
