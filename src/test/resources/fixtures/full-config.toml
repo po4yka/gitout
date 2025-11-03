@@ -1,0 +1,31 @@
+version = 0
+
+[github]
+user = "testuser"
+token = "ghp_test_token_123"
+
+[github.archive]
+owned = false
+
+[github.clone]
+starred = true
+watched = true
+gists = true
+repos = [
+  "example/repo1",
+  "example/repo2"
+]
+ignore = [
+  "ignored/repo"
+]
+
+[git.repos]
+custom1 = "https://gitlab.com/example/custom1.git"
+custom2 = "https://bitbucket.org/example/custom2.git"
+
+[ssl]
+cert_file = "/etc/ssl/certs/ca-certificates.crt"
+verify_certificates = true
+
+[parallelism]
+workers = 8

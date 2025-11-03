@@ -1,0 +1,7 @@
+version = 0
+
+[ssl]
+verify_certificates = false
+
+[git.repos]
+test = "https://example.com/repo.git"

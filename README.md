@@ -190,17 +190,49 @@ The tool includes automatic retry logic for network operations:
 - Exponential backoff between retries (5s, 10s, 15s, etc.)
 - Configurable timeout via `GITOUT_TIMEOUT` environment variable (default: 10m)
 
-### Parallel Synchronization
+### Parallel Synchronization (Enhanced)
 
-The tool supports parallel synchronization of repositories for improved performance:
+The tool supports enhanced parallel synchronization with advanced coroutine features:
 
-**Configuration Options:**
+**Basic Configuration:**
 - `--workers` CLI option: Override the number of parallel workers
 - `GITOUT_WORKERS` environment variable: Set workers without changing config
 - `[parallelism]` section in config.toml: Set default worker pool size
 - Default: 4 workers
 
 **Priority:** CLI option > Environment variable > Config file > Default (4)
+
+**Advanced Configuration (config.toml):**
+
+```toml
+[parallelism]
+workers = 4                        # Number of parallel workers
+progress_interval_ms = 1000        # Progress reporting interval in milliseconds
+repository_timeout_seconds = 600   # Default timeout per repository (in seconds)
+
+# Priority patterns: sync high-priority repos first, smaller repos first
+[[parallelism.priorities]]
+pattern = "JakeWharton/*"          # Pattern to match repository names
+priority = 75                      # Priority level (0-100, higher = more important)
+timeout = 300                      # Optional: custom timeout for matching repos
+
+[[parallelism.priorities]]
+pattern = "*/critical"             # Match any org with 'critical' repo
+priority = 100                     # Highest priority
+timeout = 600                      # 10 minute timeout
+
+[[parallelism.priorities]]
+pattern = "*/large-repo"           # Large repositories
+priority = 50                      # Normal priority
+timeout = 1800                     # 30 minute timeout
+```
+
+**Priority Levels:**
+- `100`: PRIORITY_HIGHEST - Critical repositories, synced first
+- `75`: PRIORITY_HIGH - Important repositories
+- `50`: PRIORITY_NORMAL - Default priority
+- `25`: PRIORITY_LOW - Less important repositories
+- `0`: PRIORITY_LOWEST - Synced last
 
 **Usage Examples:**
 
@@ -230,17 +262,218 @@ Parallel (4 workers): 100 repos ÷ 4 × 18s = 450s (~8 min)
 Parallel (8 workers): 100 repos ÷ 8 × 18s = 225s (~4 min)
 ```
 
+**Enhanced Features:**
+
+1. **Progress Reporting:**
+   - Real-time progress updates: "Progress: 45 of 100 repositories completed (45%)"
+   - Tracks sync duration per repository
+   - Reports average sync time and success rate
+
+2. **Priority Queuing:**
+   - High-priority repositories sync first
+   - Smaller repositories prioritized within same priority level
+   - Pattern-based priority configuration with wildcards
+
+3. **Repository-Specific Timeouts:**
+   - Configure different timeouts for different repositories
+   - Pattern matching for flexible configuration
+   - Prevents large repos from holding up the queue
+
+4. **Advanced Error Handling:**
+   - Categorized errors (Network, Auth, Timeout, Not Found, etc.)
+   - Actionable suggestions for common errors
+   - Detailed failure reports grouped by error category
+
+5. **Metrics Collection:**
+   - Success/failure rates
+   - Average sync duration
+   - Total sync time
+   - Per-repository timing information
+
+6. **Cancellation Support:**
+   - Graceful handling of job cancellation
+   - Proper cleanup on cancellation or timeout
+   - Individual repository timeouts don't affect others
+
 **Best Practices:**
 - Use 4-8 workers for GitHub to stay within rate limits
 - Higher values (10-16) work well for self-hosted git servers
 - Use workers=1 for debugging or when network is unreliable
+- Set higher priority for critical repositories
+- Configure longer timeouts for large repositories
 - Monitor logs to ensure parallel operations complete successfully
 
 **Error Handling:**
-- One repository failure doesn't stop others from syncing
-- All failures are collected and reported at the end
-- Failed repositories are listed with error messages
-- Exit code indicates if any repositories failed
+
+The tool provides intelligent error categorization and suggestions:
+
+**Error Categories:**
+- `NETWORK`: Connection issues, DNS failures, SSL problems
+- `AUTH`: Authentication or authorization failures
+- `TIMEOUT`: Operation timeouts
+- `NOT_FOUND`: Repository not found or access denied
+- `GIT_COMMAND`: Git command execution errors
+- `FILESYSTEM`: Disk space, permissions issues
+- `UNKNOWN`: Uncategorized errors
+
+**Example Error Output:**
+```
+Failed repositories by category:
+  NETWORK: 2 repositories
+    - user/repo1 (https://github.com/user/repo1.git): Connection refused
+      Suggestion: Check your network connection and ensure the repository server is accessible.
+    - user/repo2 (https://github.com/user/repo2.git): SSL certificate verification failed
+      Suggestion: SSL/TLS error. Check certificate configuration in [ssl] section.
+
+  AUTH: 1 repository
+    - user/private-repo (https://github.com/user/private-repo.git): Authentication failed
+      Suggestion: Verify your GitHub token is valid and has the required permissions.
+```
+
+**Logging Output:**
+
+With enhanced parallel sync, you'll see detailed progress information:
+
+```
+Using 4 parallel workers for synchronization
+Starting synchronization of 100 repositories with 4 workers
+[1/100] Starting sync: https://github.com/user/critical-repo.git (priority: 100)
+[2/100] Starting sync: https://github.com/user/important-repo.git (priority: 75)
+Progress: 25 of 100 repositories completed (25%)
+[25/100] Completed sync: https://github.com/user/repo25.git (2.3s)
+Progress: 50 of 100 repositories completed (50%)
+Progress: 75 of 100 repositories completed (75%)
+Synchronization complete: 98 succeeded, 2 failed
+Total duration: 8m 32s, Average per repository: 5.1s
+Success rate: 98%
+```
+
+### Performance Optimization
+
+The tool includes several performance optimizations for faster and more efficient operation:
+
+#### Git Operations
+
+**Shallow Clones:**
+- By default, initial clones use `--depth=1` for faster downloads
+- Reduces bandwidth and storage for repositories with long history
+- Can be disabled in config if full history is needed
+
+**Compression:**
+- Git compression level set to 9 (maximum) by default
+- Reduces network transfer size and storage usage
+- Configurable via `compression_level` setting
+
+**HTTP/2:**
+- Enabled by default for git operations
+- Provides better multiplexing and reduced latency
+- Falls back to HTTP/1.1 if not available
+
+#### Network Operations
+
+**Connection Pooling:**
+- Reuses HTTP connections for GitHub API calls
+- Default pool size: 16 connections
+- Keep-alive: 300 seconds (5 minutes)
+- Significantly reduces connection overhead
+
+**Timeouts:**
+- Connection timeout: 30 seconds
+- Read timeout: 60 seconds
+- Write timeout: 60 seconds
+- All configurable via `[performance]` section
+
+#### File System Optimizations
+
+**Credential File Reuse:**
+- Credentials file created once and reused
+- Avoids redundant file I/O operations
+- Enabled by default via `reuse_credentials_file`
+
+**Directory Creation:**
+- Parent directories created once and cached
+- Eliminates redundant filesystem checks
+- Automatic synchronization for parallel operations
+
+#### Performance Configuration
+
+Add a `[performance]` section to your `config.toml`:
+
+```toml
+[performance]
+# Git operation settings
+shallow_clone = true          # Use --depth=1 for faster initial clones
+clone_depth = 1               # Depth for shallow clones
+compression_level = 9         # Git compression (0-9, 9 = max)
+
+# Network settings
+connection_timeout = 30       # Connection timeout in seconds
+read_timeout = 60             # Read timeout in seconds
+write_timeout = 60            # Write timeout in seconds
+connection_pool_size = 16     # HTTP connection pool size
+connection_pool_keep_alive = 300  # Keep-alive in seconds
+enable_http2 = true           # Enable HTTP/2 for git operations
+
+# File system settings
+reuse_credentials_file = true # Reuse credentials file (recommended)
+batch_size = 100              # API batch size for pagination
+```
+
+#### Performance Best Practices
+
+**For GitHub Synchronization:**
+- Use 4-8 workers to stay within API rate limits
+- Enable shallow clones for faster initial sync
+- Use HTTP/2 for better performance
+- Increase connection pool size if syncing many repos
+
+**For Self-Hosted Git Servers:**
+- Can use higher worker counts (10-16)
+- Adjust timeouts based on server performance
+- Consider disabling shallow clones if server doesn't support it
+- Monitor server load and adjust workers accordingly
+
+**Network Optimization:**
+- Use wired connection for large syncs when possible
+- Schedule syncs during off-peak hours
+- Monitor bandwidth usage with high worker counts
+- Enable compression to reduce transfer sizes
+
+**Disk I/O Optimization:**
+- Use SSD storage for best performance
+- Ensure sufficient disk space (repos can be large)
+- Consider using a separate partition for backups
+- Monitor disk I/O during sync operations
+
+**Memory Usage:**
+- Each worker requires memory for git operations
+- Typical usage: 50-100 MB per worker
+- Total memory: (workers × 100 MB) + base overhead
+- Example: 8 workers ≈ 800 MB + 200 MB base = 1 GB
+
+#### Troubleshooting Performance Issues
+
+**Slow API Calls:**
+- Check internet connection speed
+- Verify GitHub API rate limits
+- Reduce workers if hitting rate limits
+- Enable debug logging: `-vv`
+
+**Slow Git Operations:**
+- Increase timeout values
+- Check disk I/O performance
+- Verify network bandwidth
+- Consider using shallow clones
+
+**High Memory Usage:**
+- Reduce number of workers
+- Monitor with system tools (top, htop)
+- Check for memory leaks with `-vvv` logging
+
+**High CPU Usage:**
+- Normal during compression operations
+- Reduce compression_level if needed
+- Adjust worker count based on CPU cores
 
 ### Creating a GitHub token
 

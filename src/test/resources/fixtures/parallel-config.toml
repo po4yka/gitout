@@ -1,0 +1,12 @@
+version = 0
+
+[parallelism]
+workers = 4
+
+[git.repos]
+repo1 = "https://github.com/example/repo1.git"
+repo2 = "https://github.com/example/repo2.git"
+repo3 = "https://github.com/example/repo3.git"
+repo4 = "https://github.com/example/repo4.git"
+repo5 = "https://github.com/example/repo5.git"
+repo6 = "https://github.com/example/repo6.git"

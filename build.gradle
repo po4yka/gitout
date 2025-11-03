@@ -40,6 +40,7 @@ dependencies {
 
 	testImplementation libs.junit
 	testImplementation libs.assertk
+	testImplementation libs.okhttp.mockwebserver
 }
 
 apollo {

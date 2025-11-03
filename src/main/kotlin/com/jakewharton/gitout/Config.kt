@@ -12,6 +12,7 @@ internal class Config(
 	val git: Git = Git(),
 	val ssl: Ssl = Ssl(),
 	val parallelism: Parallelism = Parallelism(),
+	val metrics: MetricsConfig = MetricsConfig(),
 ) {
 	companion object {
 		private val format = Toml
@@ -64,5 +65,27 @@ internal class Config(
 	@Serializable
 	class Parallelism(
 		val workers: Int = 4,
+		@kotlinx.serialization.SerialName("progress_interval_ms")
+		val progressIntervalMs: Long = 1000,
+		@kotlinx.serialization.SerialName("repository_timeout_seconds")
+		val repositoryTimeoutSeconds: Int? = null,
+		val priorities: List<PriorityPattern> = emptyList(),
+	)
+
+	@Poko
+	@Serializable
+	class PriorityPattern(
+		val pattern: String,
+		val priority: Int,
+		val timeout: Int? = null,
+	)
+
+	@Poko
+	@Serializable
+	class MetricsConfig(
+		val enabled: Boolean = true,
+		val format: String = "console",
+		@kotlinx.serialization.SerialName("export_path")
+		val exportPath: String? = null,
 	)
 }
