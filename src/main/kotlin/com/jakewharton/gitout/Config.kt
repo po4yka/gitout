@@ -10,6 +10,7 @@ internal class Config(
 	val version: Int,
 	val github: GitHub? = null,
 	val git: Git = Git(),
+	val ssl: Ssl = Ssl(),
 ) {
 	companion object {
 		private val format = Toml
@@ -47,5 +48,12 @@ internal class Config(
 	@Serializable
 	class Git(
 		val repos: Map<String, String> = emptyMap(),
+	)
+
+	@Poko
+	@Serializable
+	class Ssl(
+		val certFile: String? = null,
+		val verifyCertificates: Boolean = true,
 	)
 }

@@ -27,11 +27,31 @@ RUN apk add --no-cache \
       git \
       openjdk8-jre-base \
       tini \
+      ca-certificates \
+      bash \
+      su-exec \
  && rm -rf /var/cache/* \
- && mkdir /var/cache/apk
+ && mkdir /var/cache/apk \
+ && update-ca-certificates
+
+# Set SSL certificate file location
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+
+# Environment variables for configuration
+ENV GITOUT_CRON="" \
+    GITOUT_TIMEOUT="10m" \
+    GITOUT_DRY_RUN="" \
+    GITOUT_HC_ID="" \
+    GITOUT_HC_HOST="https://hc-ping.com" \
+    PUID="" \
+    PGID=""
 
 WORKDIR /app
 COPY --from=build /app/build/install/gitout ./
 
-ENTRYPOINT ["/sbin/tini", "--", "/app/bin/gitout"]
+# Add entrypoint script for user management
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
 CMD ["/config/config.toml", "/data"]

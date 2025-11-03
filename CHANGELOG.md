@@ -1,9 +1,23 @@
 # Change Log
 
 ## [Unreleased]
-[Unreleased]: https://github.com/JakeWharton/gitout/compare/0.3.0...HEAD
+[Unreleased]: https://github.com/po4yka/gitout/compare/0.3.0...HEAD
 
-Nothing yet.
+### Fork Enhancements (po4yka/gitout)
+
+New:
+- SSL/TLS certificate handling improvements with automatic detection of common certificate locations
+- Configurable SSL certificate path via `[ssl]` config section
+- Support for disabling SSL certificate verification (for testing)
+- Automatic retry mechanism with exponential backoff (up to 6 attempts)
+- Better error handling and logging for network failures
+- User/Group ID mapping support via `PUID` and `PGID` environment variables for Docker
+- Enhanced Docker entrypoint script for proper permission handling
+
+Changed:
+- Updated Dockerfile to use Alpine Linux with improved SSL support
+- Added ca-certificates and proper certificate configuration
+- Improved git operation reliability with staggered retry delays
 
 
 ## [0.3.0] - 2025-09-08

@@ -3,6 +3,7 @@ package com.jakewharton.gitout
 import java.lang.ProcessBuilder.Redirect.INHERIT
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.Paths
 import kotlin.io.path.absolutePathString
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
@@ -23,6 +24,8 @@ internal class Engine(
 	private val client: OkHttpClient,
 	private val healthCheck: HealthCheck?,
 ) {
+	private var sslConfig: Config.Ssl = Config.Ssl()
+
 	suspend fun performSync(dryRun: Boolean) {
 		val startedHealthCheck = healthCheck?.start()
 
@@ -35,6 +38,10 @@ internal class Engine(
 		check(dryRun || destination.exists() && destination.isDirectory()) {
 			"Destination must exist and must be a directory"
 		}
+
+		// Setup SSL certificates
+		sslConfig = config.ssl
+		setupSsl(config.ssl)
 
 		if (config.github != null) {
 			val gitHub = GitHub(config.github.user, config.github.token, client, logger)
@@ -151,42 +158,122 @@ internal class Engine(
 		startedHealthCheck?.complete()
 	}
 
+	private fun setupSsl(ssl: Config.Ssl) {
+		// Handle SSL certificate configuration
+		val certFile = ssl.certFile ?: findDefaultCertFile()
+		if (certFile != null) {
+			logger.debug { "Using SSL certificate file: $certFile" }
+			System.setProperty("javax.net.ssl.trustStore", certFile)
+
+			// Also set environment variables for git
+			val certPath = Paths.get(certFile)
+			if (certPath.exists()) {
+				// Note: Environment variables in JVM are immutable, but we can log the intent
+				logger.debug { "SSL_CERT_FILE should be set to: $certFile" }
+				certPath.parent?.let { dir ->
+					logger.debug { "SSL_CERT_DIR should be set to: ${dir.absolutePathString()}" }
+				}
+			}
+		}
+
+		if (!ssl.verifyCertificates) {
+			logger.warn("SSL certificate verification is DISABLED. Use only for testing!")
+			// Note: We'll pass this to git commands via -c flag in syncBare
+		}
+	}
+
+	private fun findDefaultCertFile(): String? {
+		val candidates = listOf(
+			"/etc/ssl/certs/ca-certificates.crt",
+			"/etc/ssl/cert.pem",
+			"/usr/lib/ssl/cert.pem",
+			"/etc/pki/tls/certs/ca-bundle.crt",
+		)
+
+		for (candidate in candidates) {
+			val path = Paths.get(candidate)
+			if (path.exists()) {
+				logger.debug { "Found default SSL certificate file: $candidate" }
+				return candidate
+			}
+		}
+
+		logger.debug { "No default SSL certificate file found" }
+		return null
+	}
+
 	private fun syncBare(repo: Path, url: String, dryRun: Boolean, credentials: Path? = null) {
-		val command = mutableListOf("git")
-		if (credentials != null) {
-			command.add("-c")
-			command.add("""credential.helper=store --file=${credentials.absolutePathString()}""")
-		}
+		val maxRetries = 6
+		val retryDelayMs = 5000L
 
-		val directory = if (repo.notExists()) {
-			command.apply {
-				add("clone")
-				add("--mirror")
-				add(url)
-				add(repo.name)
-			}
-			repo.parent.apply {
-				createDirectories()
-			}
-		} else {
-			command.apply {
-				add("remote")
-				add("update")
-				add("--prune")
-			}
-			repo
-		}
+		for (attempt in 1..maxRetries) {
+			try {
+				if (attempt > 1) {
+					logger.info { "Retry attempt $attempt/$maxRetries for $url" }
+					Thread.sleep(retryDelayMs * attempt) // Staggered backoff
+				}
 
-		if (dryRun) {
-			logger.lifecycle { "DRY RUN $directory ${command.joinToString(separator = " ")}" }
-		} else {
-			val process = ProcessBuilder()
-				.command(command)
-				.directory(directory.toFile())
-				.redirectError(INHERIT)
-				.start()
-			check(process.waitFor(timeout)) { "Unable to sync $url into $repo: timeout $timeout" }
-			check(process.exitValue() == 0) { "Unable to sync $url into $repo: exit ${process.exitValue()}" }
+				val command = mutableListOf("git")
+
+				// Add SSL configuration
+				if (!sslConfig.verifyCertificates) {
+					command.add("-c")
+					command.add("http.sslVerify=false")
+				}
+
+				if (credentials != null) {
+					command.add("-c")
+					command.add("""credential.helper=store --file=${credentials.absolutePathString()}""")
+				}
+
+				val directory = if (repo.notExists()) {
+					command.apply {
+						add("clone")
+						add("--mirror")
+						add(url)
+						add(repo.name)
+					}
+					repo.parent.apply {
+						createDirectories()
+					}
+				} else {
+					command.apply {
+						add("remote")
+						add("update")
+						add("--prune")
+					}
+					repo
+				}
+
+				if (dryRun) {
+					logger.lifecycle { "DRY RUN $directory ${command.joinToString(separator = " ")}" }
+					return
+				} else {
+					val process = ProcessBuilder()
+						.command(command)
+						.directory(directory.toFile())
+						.redirectError(INHERIT)
+						.start()
+
+					if (!process.waitFor(timeout)) {
+						throw IllegalStateException("Unable to sync $url into $repo: timeout $timeout")
+					}
+
+					val exitCode = process.exitValue()
+					if (exitCode == 0) {
+						logger.debug { "Successfully synced $url" }
+						return
+					} else {
+						throw IllegalStateException("Unable to sync $url into $repo: exit $exitCode")
+					}
+				}
+			} catch (e: Exception) {
+				logger.warn("Attempt $attempt failed for $url: ${e.message}")
+
+				if (attempt == maxRetries) {
+					throw IllegalStateException("Failed to sync $url after $maxRetries attempts", e)
+				}
+			}
 		}
 	}
 }

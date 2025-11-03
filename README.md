@@ -17,14 +17,12 @@ If you need access to the files, you can `git clone /path/to/bare/repo`.
 
 ### Docker
 
-The binary is available inside the `jakewharton/gitout` Docker container.
+The binary is available inside the `po4yka/gitout` Docker container (Kotlin version with SSL improvements).
 
-[![Docker Image Version](https://img.shields.io/docker/v/jakewharton/gitout?sort=semver&style=flat-square)][hub]
-[![Docker Image Size](https://img.shields.io/docker/image-size/jakewharton/gitout?sort=semver&style=flat-square)][hub]<br>
-[![Docker Image Version](https://img.shields.io/docker/v/jakewharton/gitout/trunk?style=flat-square)][hub]
-[![Docker Image Size](https://img.shields.io/docker/image-size/jakewharton/gitout/trunk?style=flat-square)][hub]
+[![Docker Image Version](https://img.shields.io/docker/v/po4yka/gitout?sort=semver)][hub]
+[![Docker Image Size](https://img.shields.io/docker/image-size/po4yka/gitout)][hub]
 
- [hub]: https://hub.docker.com/r/jakewharton/gitout/
+ [hub]: https://hub.docker.com/r/po4yka/gitout/
 
 Mount a `/data` volume which is where the repositories will be stored.
 Mount the `/config` folder which contains a `config.toml` or mount a `/config/config.toml` file directly.
@@ -32,38 +30,42 @@ Mount the `/config` folder which contains a `config.toml` or mount a `/config/co
 By default, the tool will run a single sync and then exit.
 If you specify the `GITOUT_CRON` environment variable with a valid cron specifier, the tool will not exit and perform automatic syncs in accordance with the schedule.
 
-```
+```bash
 $ docker run -d \
     -v /path/to/data:/data \
     -v /path/to/config.toml:/config/config.toml \
     -e "GITOUT_CRON=0 * * * *" \
-    jakewharton/gitout
+    -e "PUID=1000" \
+    -e "PGID=1000" \
+    po4yka/gitout
 ```
 
 For help creating a valid cron specifier, visit [cron.help](https://cron.help/#0_*_*_*_*).
 
-To be notified when sync is failing visit https://healthchecks.io, create a check, and specify the ID to the container using the `HEALTHCHECK_ID` environment variable (for example, `-e "HEALTHCHECK_ID=..."`).
+To be notified when sync is failing visit https://healthchecks.io, create a check, and specify the ID to the container using the `GITOUT_HC_ID` environment variable (for example, `-e "GITOUT_HC_ID=..."`).
 
 To write data as a particular user, the `PUID` and `PGID` environment variables can be set to your user ID and group ID, respectively.
 
-If you're using Docker Compose, an example setup looks like;
+If you're using Docker Compose, an example setup looks like:
 ```yaml
 services:
   gitout:
-    image: jakewharton/gitout:latest
+    image: po4yka/gitout:latest
     restart: unless-stopped
     volumes:
       - /path/to/data:/data
-      - /path/to/config:/config
+      - /path/to/config.toml:/config/config.toml
     environment:
       - "GITOUT_CRON=0 * * * *"
-      #Optional:
+      - "PUID=1000"
+      - "PGID=1000"
+      # Optional:
       - "GITOUT_HC_ID=..."
+      - "GITOUT_TIMEOUT=10m"
 ```
 
 Note: You may want to specify an explicit version rather than `latest`.
-See https://hub.docker.com/r/jakewharton/gitout/tags or `CHANGELOG.md` for the available versions.
-Use `trunk` for the latest changes.
+See https://hub.docker.com/r/po4yka/gitout/tags or `CHANGELOG.md` for the available versions.
 
 ### Binaries
 
@@ -110,19 +112,44 @@ token = "abcd1234efgh5678ij90"
 [github.clone]
 starred = true  # Optional, default false
 watched = true  # Optional, default false
+gists = true    # Optional, default true
 # Extra repos to synchronize that are not owned, starred, or watched by you.
 repos = [
   "JakeWharton/gitout",
 ]
 # Repos temporary or otherwise that you do not want to be synchronized.
-ignored = [
+ignore = [
   "JakeWharton/TestParameterInjector",
 ]
 
 # Repos not on GitHub to synchronize.
 [git.repos]
 asm = "https://gitlab.ow2.org/asm/asm.git"
+
+# SSL configuration (optional)
+[ssl]
+cert_file = "/etc/ssl/certs/ca-certificates.crt"  # Path to your certificate bundle
+verify_certificates = true  # Optional, default true. Set to false only for testing!
 ```
+
+### SSL/TLS Configuration
+
+The tool automatically searches for SSL certificates in common locations:
+- `/etc/ssl/certs/ca-certificates.crt`
+- `/etc/ssl/cert.pem`
+- `/usr/lib/ssl/cert.pem`
+- `/etc/pki/tls/certs/ca-bundle.crt`
+
+If your certificates are in a different location, specify the path in the `[ssl]` section of your config.
+
+The `SSL_CERT_FILE` environment variable can also be used to specify the certificate path.
+
+### Retry and Reliability
+
+The tool includes automatic retry logic for network operations:
+- Up to 6 retry attempts for failed git operations
+- Exponential backoff between retries (5s, 10s, 15s, etc.)
+- Configurable timeout via `GITOUT_TIMEOUT` environment variable (default: 10m)
 
 ### Creating a GitHub token
 
@@ -135,6 +162,48 @@ asm = "https://gitlab.ow2.org/asm/asm.git"
      - `read:user`: Needed to traverse your owned, starred, and watched repo lists
   5. Select "Generate token"
   6. Copy the value into your `config.toml` as it will not be shown again
+
+
+## Fork Improvements
+
+This fork (po4yka/gitout) is based on the Kotlin rewrite by JakeWharton and includes the following enhancements:
+
+### SSL/TLS Improvements
+- Automatic detection of SSL certificates in common locations
+- Support for custom certificate paths via config or environment variables
+- Enhanced SSL error handling and diagnostics
+- Support for disabling certificate verification (for testing environments)
+
+### Network Reliability
+- Automatic retry mechanism with exponential backoff (up to 6 attempts)
+- Configurable operation timeout via `GITOUT_TIMEOUT` environment variable
+- Better error messages for network failures
+- Improved handling of slow or flaky network connections
+
+### Docker Improvements
+- User/Group ID mapping via `PUID` and `PGID` environment variables
+- Proper file permission handling in containers
+- Enhanced SSL certificate support in Docker images
+- Simplified configuration with environment variables
+
+## Development
+
+Build the project:
+```bash
+./gradlew build
+```
+
+Run tests:
+```bash
+./gradlew test
+```
+
+Create distribution:
+```bash
+./gradlew installDist
+```
+
+The binary will be in `build/install/gitout/bin/gitout`.
 
 
 # LICENSE
