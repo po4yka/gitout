@@ -13,6 +13,13 @@ import kotlin.io.path.notExists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.time.Duration
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 
@@ -20,12 +27,32 @@ internal class Engine(
 	private val config: Path,
 	private val destination: Path,
 	private val timeout: Duration,
+	private val workers: Int?,
 	private val logger: Logger,
 	private val client: OkHttpClient,
 	private val healthCheck: HealthCheck?,
 ) {
 	private var sslConfig: Config.Ssl = Config.Ssl()
 	private var sslEnvironment: Map<String, String> = emptyMap()
+
+	// Retry policy for git sync operations
+	private val retryPolicy = RetryPolicy(
+		maxAttempts = 6,
+		baseDelayMs = 5000L,
+		backoffStrategy = RetryPolicy.BackoffStrategy.LINEAR,
+		logger = logger,
+	)
+
+	/**
+	 * Represents a single repository synchronization task.
+	 */
+	private data class SyncTask(
+		val name: String,
+		val url: String,
+		val destination: Path,
+		val credentials: Path?,
+		val reasons: Set<String>? = null,
+	)
 
 	/**
 	 * Resolves the GitHub token from multiple sources with the following priority:
@@ -89,6 +116,13 @@ internal class Engine(
 		// Setup SSL certificates
 		sslConfig = config.ssl
 		setupSsl(config.ssl)
+
+		// Determine worker pool size: CLI option > config.toml > default (4)
+		val workerPoolSize = workers ?: config.parallelism.workers
+		logger.info { "Using $workerPoolSize parallel workers for synchronization" }
+
+		// Collect all sync tasks
+		val syncTasks = mutableListOf<SyncTask>()
 
 		if (config.github != null) {
 			// Resolve GitHub token with priority: config.toml > GITHUB_TOKEN_FILE > GITHUB_TOKEN
@@ -174,8 +208,7 @@ internal class Engine(
 					.build()
 					.resolve("$nameAndOwner.git")
 					.toString()
-				logger.lifecycle { "Synchronizing $repoUrl because $reasons…" }
-				syncBare(repoDestination, repoUrl, dryRun, credentials)
+				syncTasks.add(SyncTask(nameAndOwner, repoUrl, repoDestination, credentials, reasons))
 			}
 
 			if (config.github.clone.gists) {
@@ -187,8 +220,7 @@ internal class Engine(
 						.host("gist.github.com")
 						.addPathSegment("$gist.git")
 						.toString()
-					logger.lifecycle { "Synchronizing $gistUrl…" }
-					syncBare(gistDestination, gistUrl, dryRun, credentials)
+					syncTasks.add(SyncTask("gist:$gist", gistUrl, gistDestination, credentials))
 				}
 			} else {
 				logger.debug { "Gists disabled by config" }
@@ -200,11 +232,73 @@ internal class Engine(
 		val gitDestination = destination.resolve("git")
 		for ((name, url) in config.git.repos) {
 			val repoDestination = gitDestination.resolve(name)
-			logger.lifecycle { "Synchronizing $name $url…" }
-			syncBare(repoDestination, url, dryRun)
+			syncTasks.add(SyncTask(name, url, repoDestination, null))
 		}
 
+		// Execute all sync tasks in parallel with worker pool
+		executeSyncTasksInParallel(syncTasks, workerPoolSize, dryRun)
+
 		startedHealthCheck?.complete()
+	}
+
+	/**
+	 * Executes sync tasks in parallel using a worker pool with a semaphore to limit concurrency.
+	 * Collects all results and reports failures at the end.
+	 */
+	private suspend fun executeSyncTasksInParallel(
+		tasks: List<SyncTask>,
+		workerPoolSize: Int,
+		dryRun: Boolean,
+	) {
+		if (tasks.isEmpty()) {
+			logger.info { "No repositories to synchronize" }
+			return
+		}
+
+		logger.info { "Starting synchronization of ${tasks.size} repositories with $workerPoolSize workers" }
+
+		// Track results
+		data class SyncResult(val task: SyncTask, val success: Boolean, val error: Throwable? = null)
+		val results = mutableListOf<SyncResult>()
+
+		// Create semaphore to limit concurrent operations
+		val semaphore = Semaphore(workerPoolSize)
+
+		// Execute all tasks in parallel with worker pool limit
+		coroutineScope {
+			tasks.map { task ->
+				async(Dispatchers.IO) {
+					semaphore.withPermit {
+						try {
+							val reasonsStr = task.reasons?.let { " because $it" } ?: ""
+							logger.lifecycle { "Starting sync: ${task.url}$reasonsStr" }
+
+							syncBare(task.destination, task.url, dryRun, task.credentials)
+
+							logger.lifecycle { "Completed sync: ${task.url}" }
+							SyncResult(task, success = true)
+						} catch (e: Throwable) {
+							logger.warn("Failed sync: ${task.url}: ${e.message}")
+							SyncResult(task, success = false, error = e)
+						}
+					}
+				}
+			}.awaitAll().also { results.addAll(it) }
+		}
+
+		// Report summary
+		val successful = results.count { it.success }
+		val failed = results.count { !it.success }
+
+		logger.info { "Synchronization complete: $successful succeeded, $failed failed" }
+
+		if (failed > 0) {
+			logger.warn("Failed repositories:")
+			results.filter { !it.success }.forEach { result ->
+				logger.warn("  - ${result.task.name} (${result.task.url}): ${result.error?.message}")
+			}
+			throw IllegalStateException("$failed out of ${tasks.size} repositories failed to synchronize")
+		}
 	}
 
 	private fun setupSsl(ssl: Config.Ssl) {
@@ -259,85 +353,93 @@ internal class Engine(
 		return null
 	}
 
-	private fun syncBare(repo: Path, url: String, dryRun: Boolean, credentials: Path? = null) {
-		val maxRetries = 6
-		val retryDelayMs = 5000L
+	private suspend fun syncBare(repo: Path, url: String, dryRun: Boolean, credentials: Path? = null) {
+		// Handle dry run separately (no retry needed)
+		if (dryRun) {
+			val command = buildGitCommand(repo, url, credentials)
+			val directory = if (repo.notExists()) repo.parent else repo
+			logger.lifecycle { "DRY RUN $directory ${command.joinToString(separator = " ")}" }
+			return
+		}
 
-		for (attempt in 1..maxRetries) {
-			try {
-				if (attempt > 1) {
-					logger.info { "Retry attempt $attempt/$maxRetries for $url" }
-					Thread.sleep(retryDelayMs * attempt) // Staggered backoff
-				}
+		// Use retry policy for actual sync operations
+		retryPolicy.execute(operationDescription = url) { attempt ->
+			executeSyncOperation(repo, url, credentials)
+		}
+	}
 
-				val command = mutableListOf("git")
+	/**
+	 * Builds the git command for syncing a repository.
+	 */
+	private fun buildGitCommand(repo: Path, url: String, credentials: Path?): List<String> {
+		val command = mutableListOf("git")
 
-				// Add SSL configuration
-				if (!sslConfig.verifyCertificates) {
-					command.add("-c")
-					command.add("http.sslVerify=false")
-				}
+		// Add SSL configuration
+		if (!sslConfig.verifyCertificates) {
+			command.add("-c")
+			command.add("http.sslVerify=false")
+		}
 
-				if (credentials != null) {
-					command.add("-c")
-					command.add("""credential.helper=store --file=${credentials.absolutePathString()}""")
-				}
+		if (credentials != null) {
+			command.add("-c")
+			command.add("""credential.helper=store --file=${credentials.absolutePathString()}""")
+		}
 
-				val directory = if (repo.notExists()) {
-					command.apply {
-						add("clone")
-						add("--mirror")
-						add(url)
-						add(repo.name)
-					}
-					repo.parent.apply {
-						createDirectories()
-					}
-				} else {
-					command.apply {
-						add("remote")
-						add("update")
-						add("--prune")
-					}
-					repo
-				}
-
-				if (dryRun) {
-					logger.lifecycle { "DRY RUN $directory ${command.joinToString(separator = " ")}" }
-					return
-				} else {
-					val processBuilder = ProcessBuilder()
-						.command(command)
-						.directory(directory.toFile())
-						.redirectError(INHERIT)
-
-					// Apply SSL environment variables to the subprocess
-					if (sslEnvironment.isNotEmpty()) {
-						processBuilder.environment().putAll(sslEnvironment)
-						logger.debug { "Applied SSL environment variables: ${sslEnvironment.keys}" }
-					}
-
-					val process = processBuilder.start()
-
-					if (!process.waitFor(timeout)) {
-						throw IllegalStateException("Unable to sync $url into $repo: timeout $timeout")
-					}
-
-					val exitCode = process.exitValue()
-					if (exitCode == 0) {
-						logger.debug { "Successfully synced $url" }
-						return
-					} else {
-						throw IllegalStateException("Unable to sync $url into $repo: exit $exitCode")
-					}
-				}
-			} catch (e: Exception) {
-				logger.warn("Attempt $attempt failed for $url: ${e.message}")
-
-				if (attempt == maxRetries) {
-					throw IllegalStateException("Failed to sync $url after $maxRetries attempts", e)
-				}
+		if (repo.notExists()) {
+			command.apply {
+				add("clone")
+				add("--mirror")
+				add(url)
+				add(repo.name)
 			}
+		} else {
+			command.apply {
+				add("remote")
+				add("update")
+				add("--prune")
+			}
+		}
+
+		return command
+	}
+
+	/**
+	 * Executes a single git sync operation.
+	 * Throws an exception if the operation fails.
+	 */
+	private fun executeSyncOperation(repo: Path, url: String, credentials: Path?) {
+		val command = buildGitCommand(repo, url, credentials)
+
+		val directory = if (repo.notExists()) {
+			repo.parent.apply {
+				createDirectories()
+			}
+		} else {
+			repo
+		}
+
+		val processBuilder = ProcessBuilder()
+			.command(command)
+			.directory(directory.toFile())
+			.redirectError(INHERIT)
+
+		// Apply SSL environment variables to the subprocess
+		if (sslEnvironment.isNotEmpty()) {
+			processBuilder.environment().putAll(sslEnvironment)
+			logger.debug { "Applied SSL environment variables: ${sslEnvironment.keys}" }
+		}
+
+		val process = processBuilder.start()
+
+		if (!process.waitFor(timeout)) {
+			throw IllegalStateException("Unable to sync $url into $repo: timeout $timeout")
+		}
+
+		val exitCode = process.exitValue()
+		if (exitCode == 0) {
+			logger.debug { "Successfully synced $url" }
+		} else {
+			throw IllegalStateException("Unable to sync $url into $repo: exit $exitCode")
 		}
 	}
 }

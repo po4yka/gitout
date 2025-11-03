@@ -83,6 +83,7 @@ Usage: gitout [<options>] <config> <destination>
 
 Options:
   --version            Show the version and exit
+  --workers=<number>   Number of parallel workers for repository synchronization (default: from config or 4)
   -v, --verbose        Increase logging verbosity. -v = informational, -vv = debug, -vvv = trace
   -q, --quiet          Decrease logging verbosity. Takes precedence over verbosity
   --dry-run            Print actions instead of performing them
@@ -130,6 +131,10 @@ asm = "https://gitlab.ow2.org/asm/asm.git"
 [ssl]
 cert_file = "/etc/ssl/certs/ca-certificates.crt"  # Path to your certificate bundle
 verify_certificates = true  # Optional, default true. Set to false only for testing!
+
+# Parallel synchronization configuration (optional)
+[parallelism]
+workers = 4  # Number of repositories to sync in parallel (default: 4)
 ```
 
 ### GitHub Token Configuration
@@ -185,6 +190,58 @@ The tool includes automatic retry logic for network operations:
 - Exponential backoff between retries (5s, 10s, 15s, etc.)
 - Configurable timeout via `GITOUT_TIMEOUT` environment variable (default: 10m)
 
+### Parallel Synchronization
+
+The tool supports parallel synchronization of repositories for improved performance:
+
+**Configuration Options:**
+- `--workers` CLI option: Override the number of parallel workers
+- `GITOUT_WORKERS` environment variable: Set workers without changing config
+- `[parallelism]` section in config.toml: Set default worker pool size
+- Default: 4 workers
+
+**Priority:** CLI option > Environment variable > Config file > Default (4)
+
+**Usage Examples:**
+
+```bash
+# Use 8 parallel workers
+gitout --workers=8 config.toml /backup/path
+
+# Use environment variable
+export GITOUT_WORKERS=6
+gitout config.toml /backup/path
+
+# Sequential mode (disable parallelism)
+gitout --workers=1 config.toml /backup/path
+```
+
+**Performance Benefits:**
+
+Parallel synchronization significantly reduces total sync time:
+- **Sequential sync:** ~30 minutes for 100 repos (assuming 18 seconds per repo)
+- **Parallel sync (4 workers):** ~8 minutes for 100 repos (4x speedup)
+- **Parallel sync (8 workers):** ~4 minutes for 100 repos (8x speedup)
+
+Example performance improvement:
+```
+Sequential: 100 repos × 18s = 1800s (~30 min)
+Parallel (4 workers): 100 repos ÷ 4 × 18s = 450s (~8 min)
+Parallel (8 workers): 100 repos ÷ 8 × 18s = 225s (~4 min)
+```
+
+**Best Practices:**
+- Use 4-8 workers for GitHub to stay within rate limits
+- Higher values (10-16) work well for self-hosted git servers
+- Use workers=1 for debugging or when network is unreliable
+- Monitor logs to ensure parallel operations complete successfully
+
+**Error Handling:**
+- One repository failure doesn't stop others from syncing
+- All failures are collected and reported at the end
+- Failed repositories are listed with error messages
+- Exit code indicates if any repositories failed
+
 ### Creating a GitHub token
 
   1. Visit https://github.com/settings/tokens
@@ -201,6 +258,14 @@ The tool includes automatic retry logic for network operations:
 ## Fork Improvements
 
 This fork (po4yka/gitout) is based on the Kotlin rewrite by JakeWharton and includes the following enhancements:
+
+### Parallel Synchronization (NEW)
+- Concurrent repository synchronization using Kotlin coroutines
+- Configurable worker pool (default: 4 workers)
+- Massive performance improvement: 4-8x faster for large repository sets
+- Intelligent error handling: one failure doesn't stop others
+- Configurable via `--workers` CLI option, `GITOUT_WORKERS` env var, or config.toml
+- Respects rate limits with bounded concurrency
 
 ### SSL/TLS Improvements
 - Automatic detection of SSL certificates in common locations

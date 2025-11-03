@@ -35,6 +35,7 @@ dependencies {
 	implementation libs.okhttp.loggingInterceptor
 	implementation libs.ktoml
 	implementation libs.kotlinx.serialization.core
+	implementation libs.kotlinx.coroutines.core
 	implementation libs.apollo.runtime
 
 	testImplementation libs.junit

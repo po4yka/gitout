@@ -165,8 +165,7 @@ class EngineTest {
 
 		// Verify exception was thrown with expected message
 		assertThat(exceptionThrown).isEqualTo(true)
-		assertThat(exceptionMessage).contains("Failed to sync")
-		assertThat(exceptionMessage).contains("after 6 attempts")
+		assertThat(exceptionMessage).contains("repositories failed to synchronize")
 
 		// Cleanup
 		tempDir.toFile().deleteRecursively()
@@ -254,6 +253,7 @@ class EngineTest {
 				config = configFile,
 				destination = destination,
 				timeout = 10.seconds,
+				workers = null,
 				logger = logger,
 				client = client,
 				healthCheck = null
@@ -380,6 +380,7 @@ class EngineTest {
 			config = config,
 			destination = destination,
 			timeout = 10.seconds,
+			workers = null,
 			logger = logger,
 			client = client,
 			healthCheck = null

@@ -57,6 +57,10 @@ private class GitOutCommand(
 		.default(10.minutes)
 		.help("Timeout for git clone/update operations (default: 10m)")
 
+	private val workers by option(envvar = "GITOUT_WORKERS")
+		.convert { it.toInt() }
+		.help("Number of parallel workers for repository synchronization (default: from config or 4)")
+
 	private val verbosity by option("--verbose", "-v")
 		.counted(limit = 3)
 		.help("Increase logging verbosity. -v = informational, -vv = debug, -vvv = trace")
@@ -105,6 +109,7 @@ private class GitOutCommand(
 			config = config,
 			destination = destination,
 			timeout = timeout,
+			workers = workers,
 			logger = logger,
 			client = client,
 			healthCheck = healthCheck,

@@ -11,6 +11,7 @@ internal class Config(
 	val github: GitHub? = null,
 	val git: Git = Git(),
 	val ssl: Ssl = Ssl(),
+	val parallelism: Parallelism = Parallelism(),
 ) {
 	companion object {
 		private val format = Toml
@@ -57,5 +58,11 @@ internal class Config(
 		val certFile: String? = null,
 		@kotlinx.serialization.SerialName("verify_certificates")
 		val verifyCertificates: Boolean = true,
+	)
+
+	@Poko
+	@Serializable
+	class Parallelism(
+		val workers: Int = 4,
 	)
 }
