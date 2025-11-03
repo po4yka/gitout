@@ -1,59 +1,48 @@
-Git Out
-=======
+# Git Out
 
 A command-line tool to automatically backup Git repositories from GitHub or anywhere.
 
 The `gitout` tool will clone git repos from GitHub or any other git hosting service.
 If the repository was already cloned, it will fetch any updates to keep your local copy in sync.
 
-When you add your GitHub username and a token, `gitout` can discover your repositories.
-Use the `--owned`, `--starred` (or `--stars`), and `--watched` flags to specify which
-repositories are synchronized. When a flag is omitted the behavior falls back to the
-values configured in `config.toml`.
+When you add your GitHub username and a token, `gitout` will discover all of your owned repositories and synchronize them automatically.
+You can opt-in to having repositories that you've starred or watched synchronized as well.
 
 The cloned repositories are [bare](https://www.saintsjd.com/2011/01/what-is-a-bare-git-repository/).
 In other words, there is no working copy of the files for you to interact with.
 If you need access to the files, you can `git clone /path/to/bare/repo`.
 
 
-Installation
-------------
-
-### Rust
-
-If you have Rust installed you can install the binary by running `cargo install gitout`.
-
-[![Latest version](https://img.shields.io/crates/v/gitout.svg)](https://crates.io/crates/gitout)
+## Installation
 
 ### Docker
 
-The binary is available inside the `po4yka/gitout` Docker container which can run it as a cron job.
+The binary is available inside the `po4yka/gitout` Docker container (Kotlin version with SSL improvements).
 
 [![Docker Image Version](https://img.shields.io/docker/v/po4yka/gitout?sort=semver)][hub]
-[![Docker Image Size](https://img.shields.io/docker/image-size/po4yka/gitout)][layers]
+[![Docker Image Size](https://img.shields.io/docker/image-size/po4yka/gitout)][hub]
 
  [hub]: https://hub.docker.com/r/po4yka/gitout/
- [layers]: https://hub.docker.com/r/po4yka/gitout
 
 Mount a `/data` volume which is where the repositories will be stored.
-Mount the `/app/config.toml` file directly with your configuration.
-Specify a `CRON` environment variable with a cron specifier dictating the schedule for when the tool should run.
+Mount the `/config` folder which contains a `config.toml` or mount a `/config/config.toml` file directly.
+
+By default, the tool will run a single sync and then exit.
+If you specify the `GITOUT_CRON` environment variable with a valid cron specifier, the tool will not exit and perform automatic syncs in accordance with the schedule.
 
 ```bash
 $ docker run -d \
     -v /path/to/data:/data \
-    -v /path/to/config.toml:/app/config.toml:ro \
-    -e "CRON=0 * * * *" \
-    po4yka/gitout \
-    /app/gitout \
-    --owned --starred --watched \
-    /app/config.toml \
-    /data
+    -v /path/to/config.toml:/config/config.toml \
+    -e "GITOUT_CRON=0 * * * *" \
+    -e "PUID=1000" \
+    -e "PGID=1000" \
+    po4yka/gitout
 ```
 
 For help creating a valid cron specifier, visit [cron.help](https://cron.help/#0_*_*_*_*).
 
-To be notified when sync is failing visit https://healthchecks.io, create a check, and specify the ID to the container using the `HEALTHCHECK_ID` environment variable (for example, `-e "HEALTHCHECK_ID=..."`).
+To be notified when sync is failing visit https://healthchecks.io, create a check, and specify the ID to the container using the `GITOUT_HC_ID` environment variable (for example, `-e "GITOUT_HC_ID=..."`).
 
 To write data as a particular user, the `PUID` and `PGID` environment variables can be set to your user ID and group ID, respectively.
 
@@ -65,185 +54,50 @@ services:
     restart: unless-stopped
     volumes:
       - /path/to/data:/data
-      - /path/to/config.toml:/app/config.toml:ro
-    command: >
-      /app/gitout
-      --owned --starred --watched
-      /app/config.toml
-      /data
+      - /path/to/config.toml:/config/config.toml
     environment:
-      - "CRON=0 * * * *"
+      - "GITOUT_CRON=0 * * * *"
+      - "PUID=1000"
+      - "PGID=1000"
       # Optional:
-      - "HEALTHCHECK_ID=..."
-      - "PUID=..."
-      - "PGID=..."
-      - "GITHUB_TOKEN_FILE=/run/secrets/github_pat"  # If using Docker secrets
-    secrets:
-      - github_pat  # If using Docker secrets
-
-secrets:
-  github_pat:
-    file: /path/to/github_token.txt  # Path to your GitHub token file
-```
-
-Here's a complete example of both configuration files:
-
-1. `/opt/gitout/config.toml`:
-```toml
-version = 0
-
-[github]
-user = "your-github-username"
-# token is not needed if using GITHUB_TOKEN_FILE in docker-compose
-
-[github.archive]
-owned = true
-
-[github.clone]
-starred = true
-watched = true
-gists = true
-repos = [
-    # Add specific repositories to clone
-    # "username/repo-name"
-]
-ignored = [
-    # Add repositories to ignore
-    # "username/repo-name"
-]
-
-[git.repos]
-# Add non-GitHub git repositories
-# example = "https://example.com/example.git"
-```
-
-2. `/opt/gitout/docker-compose.yml`:
-```yaml
-services:
-  watchtower:
-    image: containrrr/watchtower
-    container_name: watchtower
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    command: --cleanup --interval 21600
-    restart: unless-stopped
-
-  gitout:
-    image: ghcr.io/po4yka/gitout:latest
-    platform: linux/arm64  # or linux/amd64 for x86_64
-    restart: unless-stopped
-    volumes:
-      - /mnt/nvme/git-backups:/data
-      - /opt/gitout/config.toml:/app/config.toml:ro
-    environment:
-      - GITHUB_TOKEN_FILE=/run/secrets/github_pat
-      - CRON=0 0 * * *  # Run daily at midnight
-    secrets:
-      - github_pat
-    command: >
-      /app/gitout
-      --stars --owned --watched
-      --interval 86400
-      --workers 4
-      /app/config.toml
-      /data
-
-secrets:
-  github_pat:
-    file: /opt/gitout/github_token.txt
-```
-
-To set up:
-
-1. Create the config directory and files:
-```bash
-sudo mkdir -p /opt/gitout
-sudo nano /opt/gitout/config.toml  # Add the config.toml content
-sudo nano /opt/gitout/github_token.txt  # Add your GitHub token
-sudo nano /opt/gitout/docker-compose.yml  # Add the docker-compose.yml content
-```
-
-2. Set proper permissions:
-```bash
-sudo chown -R root:root /opt/gitout
-sudo chmod 644 /opt/gitout/config.toml
-sudo chmod 600 /opt/gitout/github_token.txt
-sudo chmod 644 /opt/gitout/docker-compose.yml
-```
-
-3. Start the services:
-```bash
-cd /opt/gitout
-sudo docker compose up -d
+      - "GITOUT_HC_ID=..."
+      - "GITOUT_TIMEOUT=10m"
 ```
 
 Note: You may want to specify an explicit version rather than `latest`.
 See https://hub.docker.com/r/po4yka/gitout/tags or `CHANGELOG.md` for the available versions.
 
-#### Publishing with your own Docker credentials
-
-If you maintain a fork or need to push images to your own Docker Hub account, add `DOCKER_USERNAME` and `DOCKER_PASSWORD` secrets to your repository and enable a login step in the build workflow:
-
-```yaml
-- uses: docker/login-action@v2
-  with:
-    username: ${{ secrets.DOCKER_USERNAME }}
-    password: ${{ secrets.DOCKER_PASSWORD }}
-```
-
-Update the workflow's `images` setting to reference your repository before pushing.
-
 ### Binaries
 
-Prebuilt binaries for Linux, macOS, and Windows are available on the
-[GitHub releases page](https://github.com/JakeWharton/gitout/releases).
-Download the archive for your platform, extract it, and place the `gitout`
-executable somewhere on your `PATH`.
+A `.zip` can be downloaded from the [latest GitHub release](https://github.com/JakeWharton/gitout/releases/latest).
 
-#### Building your own
-
-If you want to build these binaries yourself, compile a release binary for each
-target. When cross-compiling from Linux, [`cross`](https://github.com/cross-rs/cross)
-is the easiest approach:
-
-```bash
-cross build --release --target x86_64-unknown-linux-gnu    # Linux
-cross build --release --target x86_64-apple-darwin         # macOS
-cross build --release --target x86_64-pc-windows-gnu       # Windows
-```
-
-Each build will produce `gitout` (or `gitout.exe` on Windows) under
-`target/<target>/release/`. Package the executable into a `.tar.gz` or `.zip`
-archive and upload it as a release asset on GitHub.
+The Java Virtual Machine must be installed on your system to run.
+After unzipping, run either `bin/gitout` (macOS, Linux) or `bin/gitout.bat` (Windows).
 
 
-Usage
------
+## Usage
 
 ```
 $ gitout --help
-gitout 0.2.0
-
-Usage: gitout [OPTIONS] <CONFIG> <DESTINATION>
-
-Arguments:
-  <CONFIG>       Configuration file
-  <DESTINATION>  Backup directory
+Usage: gitout [<options>] <config> <destination>
 
 Options:
-  -v, --verbose               Enable verbose logging
-      --experimental-archive  Enable experimental repository archiving
-      --dry-run               Print actions instead of performing them
-      --owned                 Include repositories you own
-      --starred               Include repositories you have starred
-      --watched               Include repositories you watch
-  -h, --help                  Print help
-  -V, --version               Print version
+  --version            Show the version and exit
+  -v, --verbose        Increase logging verbosity. -v = informational, -vv = debug, -vvv = trace
+  -q, --quiet          Decrease logging verbosity. Takes precedence over verbosity
+  --dry-run            Print actions instead of performing them
+  --cron=<expression>  Run command forever and perform sync on this schedule
+  --hc-id=<id>         ID of Healthchecks.io service to notify
+  --hc-host=<url>      Host of Healthchecks.io service to notify. Requires --hc-id
+  -h, --help           Show this message and exit
+
+Arguments:
+  <config>       Configuration TOML
+  <destination>  Backup directory
 ```
 
 
-Configuration specification
----------------------------
+## Configuration
 
 Until version 1.0 of the tool, the TOML version is set to 0 and may change incompatibly between 0.x releases.
 You can find migration information in the `CHANGELOG.md` file.
@@ -258,63 +112,101 @@ token = "abcd1234efgh5678ij90"
 [github.clone]
 starred = true  # Optional, default false
 watched = true  # Optional, default false
+gists = true    # Optional, default true
 # Extra repos to synchronize that are not owned, starred, or watched by you.
 repos = [
   "JakeWharton/gitout",
 ]
 # Repos temporary or otherwise that you do not want to be synchronized.
-ignored = [
+ignore = [
   "JakeWharton/TestParameterInjector",
 ]
 
 # Repos not on GitHub to synchronize.
 [git.repos]
 asm = "https://gitlab.ow2.org/asm/asm.git"
-```
 
-### Configuring SSL certificates
-
-`gitout` relies on system SSL certificates to securely connect to remote
-repositories. If your system stores certificates in a non-standard location,
-specify the path in your configuration file under the `ssl` section or set the
-`SSL_CERT_FILE` environment variable.
-
-```toml
+# SSL configuration (optional)
 [ssl]
 cert_file = "/etc/ssl/certs/ca-certificates.crt"  # Path to your certificate bundle
+verify_certificates = true  # Optional, default true. Set to false only for testing!
 ```
 
-When no certificate path is configured, `gitout` will attempt a few common
-locations such as `/etc/ssl/certs/ca-certificates.crt` and `/usr/lib/ssl/cert.pem`.
+### SSL/TLS Configuration
+
+The tool automatically searches for SSL certificates in common locations:
+- `/etc/ssl/certs/ca-certificates.crt`
+- `/etc/ssl/cert.pem`
+- `/usr/lib/ssl/cert.pem`
+- `/etc/pki/tls/certs/ca-bundle.crt`
+
+If your certificates are in a different location, specify the path in the `[ssl]` section of your config.
+
+The `SSL_CERT_FILE` environment variable can also be used to specify the certificate path.
+
+### Retry and Reliability
+
+The tool includes automatic retry logic for network operations:
+- Up to 6 retry attempts for failed git operations
+- Exponential backoff between retries (5s, 10s, 15s, etc.)
+- Configurable timeout via `GITOUT_TIMEOUT` environment variable (default: 10m)
 
 ### Creating a GitHub token
 
-1. Visit https://github.com/settings/tokens
-2. Click "Generate new token" under **"Personal access tokens (classic)"**
-3. Type "gitout" in the name field
-4. Select the "repo", "gist", and "read:user" scopes
+  1. Visit https://github.com/settings/tokens
+  2. Click "Generate new token"
+  3. Type "gitout" in the name field
+  4. Select the "repo", "gist", and "read:user" scopes
      - `repo`: Needed to discover and clone private repositories (if you only have public repositories then just `public_repo` will also work)
      - `gist`: Needed to discover and clone private gists (if you only have public gists then this is not required)
      - `read:user`: Needed to traverse your owned, starred, and watched repo lists
-   - *Fine-grained personal access tokens are **not** supported by the GitHub migrations API.* Use a classic token instead.
-5. Select "Generate token"
+  5. Select "Generate token"
   6. Copy the value into your `config.toml` as it will not be shown again
 
 
-Development
------------
+## Fork Improvements
 
-If you have Rust installed, a debug binary can be built with `cargo build` and a release binary with `cargo build --release`.
-The binary will be in `target/debug/gitout` or `target/release/gitout`, respectively.
-Run all the tests with `cargo test`.
-Format the code with `cargo fmt`.
-Run the Clippy tool with `cargo clippy`.
+This fork (po4yka/gitout) is based on the Kotlin rewrite by JakeWharton and includes the following enhancements:
 
-If you have Docker but not Rust, run `docker build .` which will do everything. This is what runs on CI.
+### SSL/TLS Improvements
+- Automatic detection of SSL certificates in common locations
+- Support for custom certificate paths via config or environment variables
+- Enhanced SSL error handling and diagnostics
+- Support for disabling certificate verification (for testing environments)
+
+### Network Reliability
+- Automatic retry mechanism with exponential backoff (up to 6 attempts)
+- Configurable operation timeout via `GITOUT_TIMEOUT` environment variable
+- Better error messages for network failures
+- Improved handling of slow or flaky network connections
+
+### Docker Improvements
+- User/Group ID mapping via `PUID` and `PGID` environment variables
+- Proper file permission handling in containers
+- Enhanced SSL certificate support in Docker images
+- Simplified configuration with environment variables
+
+## Development
+
+Build the project:
+```bash
+./gradlew build
+```
+
+Run tests:
+```bash
+./gradlew test
+```
+
+Create distribution:
+```bash
+./gradlew installDist
+```
+
+The binary will be in `build/install/gitout/bin/gitout`.
 
 
-LICENSE
-======
+# LICENSE
 
 MIT. See `LICENSE.txt`.
 
