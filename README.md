@@ -107,7 +107,7 @@ version = 0
 
 [github]
 user = "example"
-token = "abcd1234efgh5678ij90"
+token = "abcd1234efgh5678ij90"  # Optional - can use environment variables instead
 
 [github.clone]
 starred = true  # Optional, default false
@@ -130,6 +130,40 @@ asm = "https://gitlab.ow2.org/asm/asm.git"
 [ssl]
 cert_file = "/etc/ssl/certs/ca-certificates.crt"  # Path to your certificate bundle
 verify_certificates = true  # Optional, default true. Set to false only for testing!
+```
+
+### GitHub Token Configuration
+
+The GitHub token can be provided in multiple ways with the following priority order:
+
+1. **config.toml file** - Specify the token directly in the `[github]` section:
+   ```toml
+   [github]
+   user = "example"
+   token = "abcd1234efgh5678ij90"
+   ```
+
+2. **GITHUB_TOKEN_FILE environment variable** - Path to a file containing the token:
+   ```bash
+   export GITHUB_TOKEN_FILE="/path/to/token-file"
+   ```
+   This is useful for keeping secrets in separate files managed by secret management systems.
+
+3. **GITHUB_TOKEN environment variable** - Token value directly:
+   ```bash
+   export GITHUB_TOKEN="abcd1234efgh5678ij90"
+   ```
+
+The tool will use the first available token found in this order. If you have a GitHub configuration but no token is found in any location, the tool will fail with a helpful error message.
+
+When using Docker, you can pass environment variables like this:
+```bash
+docker run -d \
+  -v /path/to/data:/data \
+  -v /path/to/config.toml:/config/config.toml \
+  -e "GITHUB_TOKEN_FILE=/secrets/github-token" \
+  -e "GITOUT_CRON=0 * * * *" \
+  po4yka/gitout
 ```
 
 ### SSL/TLS Configuration

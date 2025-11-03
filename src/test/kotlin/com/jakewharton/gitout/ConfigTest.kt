@@ -19,7 +19,7 @@ class ConfigTest {
 			|
 			|[github]
 			|user = "user"
-			|token = "token"
+			|token = "token_value"
 			|
 			|[github.archive]
 			|owned = false
@@ -45,7 +45,7 @@ class ConfigTest {
 			version = 0,
 			github = Config.GitHub(
 				user = "user",
-				token = "token",
+				token = "token_value",
 				archive = Config.GitHub.Archive(
 					owned = false,
 				),
@@ -114,6 +114,41 @@ class ConfigTest {
 		val expected = Config(
 			version = 0,
 			ssl = Config.Ssl(),
+		)
+		assertThat(Config.parse(config)).isEqualTo(expected)
+	}
+
+	@Test fun githubWithoutToken() {
+		val config = """
+			|version = 0
+			|
+			|[github]
+			|user = "example"
+			""".trimMargin()
+		val expected = Config(
+			version = 0,
+			github = Config.GitHub(
+				user = "example",
+				token = null,
+			),
+		)
+		assertThat(Config.parse(config)).isEqualTo(expected)
+	}
+
+	@Test fun githubWithToken() {
+		val config = """
+			|version = 0
+			|
+			|[github]
+			|user = "example"
+			|token = "ghp_test123"
+			""".trimMargin()
+		val expected = Config(
+			version = 0,
+			github = Config.GitHub(
+				user = "example",
+				token = "ghp_test123",
+			),
 		)
 		assertThat(Config.parse(config)).isEqualTo(expected)
 	}

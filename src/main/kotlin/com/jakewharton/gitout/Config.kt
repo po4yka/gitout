@@ -24,7 +24,7 @@ internal class Config(
 	@Serializable
 	class GitHub(
 		val user: String,
-		val token: String,
+		val token: String? = null,
 		val archive: Archive = Archive(),
 		val clone: Clone = Clone(),
 	) {

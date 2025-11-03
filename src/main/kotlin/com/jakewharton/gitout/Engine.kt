@@ -25,6 +25,53 @@ internal class Engine(
 	private val healthCheck: HealthCheck?,
 ) {
 	private var sslConfig: Config.Ssl = Config.Ssl()
+	private var sslEnvironment: Map<String, String> = emptyMap()
+
+	/**
+	 * Resolves the GitHub token from multiple sources with the following priority:
+	 * 1. config.toml token (if present)
+	 * 2. GITHUB_TOKEN_FILE environment variable (path to file containing token)
+	 * 3. GITHUB_TOKEN environment variable (token value directly)
+	 */
+	private fun resolveGitHubToken(configToken: String?): String {
+		// Priority 1: Use token from config.toml if present
+		if (configToken != null) {
+			logger.debug { "Using GitHub token from config.toml" }
+			return configToken
+		}
+
+		// Priority 2: Check GITHUB_TOKEN_FILE environment variable
+		val tokenFilePath = System.getenv("GITHUB_TOKEN_FILE")
+		if (tokenFilePath != null) {
+			val tokenFile = Paths.get(tokenFilePath)
+			if (tokenFile.exists()) {
+				val token = tokenFile.readText().trim()
+				if (token.isNotEmpty()) {
+					logger.debug { "Using GitHub token from GITHUB_TOKEN_FILE: $tokenFilePath" }
+					return token
+				} else {
+					logger.warn("GITHUB_TOKEN_FILE is empty: $tokenFilePath")
+				}
+			} else {
+				logger.warn("GITHUB_TOKEN_FILE does not exist: $tokenFilePath")
+			}
+		}
+
+		// Priority 3: Check GITHUB_TOKEN environment variable
+		val tokenEnv = System.getenv("GITHUB_TOKEN")
+		if (tokenEnv != null && tokenEnv.isNotEmpty()) {
+			logger.debug { "Using GitHub token from GITHUB_TOKEN environment variable" }
+			return tokenEnv
+		}
+
+		// No token found anywhere
+		throw IllegalStateException(
+			"GitHub token not found. Please provide a token via:\n" +
+			"  1. config.toml [github] token field\n" +
+			"  2. GITHUB_TOKEN_FILE environment variable (path to file)\n" +
+			"  3. GITHUB_TOKEN environment variable (token value)"
+		)
+	}
 
 	suspend fun performSync(dryRun: Boolean) {
 		val startedHealthCheck = healthCheck?.start()
@@ -44,7 +91,9 @@ internal class Engine(
 		setupSsl(config.ssl)
 
 		if (config.github != null) {
-			val gitHub = GitHub(config.github.user, config.github.token, client, logger)
+			// Resolve GitHub token with priority: config.toml > GITHUB_TOKEN_FILE > GITHUB_TOKEN
+			val token = resolveGitHubToken(config.github.token)
+			val gitHub = GitHub(config.github.user, token, client, logger)
 			val githubDestination = destination.resolve("github")
 
 			logger.info { "Querying GitHub information for ${config.github.user}…" }
@@ -108,7 +157,7 @@ internal class Engine(
 						HttpUrl.Builder()
 							.scheme("https")
 							.username(config.github.user)
-							.password(config.github.token)
+							.password(token)
 							.host("github.com")
 							.build()
 							.toString(),
@@ -159,27 +208,35 @@ internal class Engine(
 	}
 
 	private fun setupSsl(ssl: Config.Ssl) {
+		val envVars = mutableMapOf<String, String>()
+
 		// Handle SSL certificate configuration
 		val certFile = ssl.certFile ?: findDefaultCertFile()
 		if (certFile != null) {
 			logger.debug { "Using SSL certificate file: $certFile" }
 			System.setProperty("javax.net.ssl.trustStore", certFile)
 
-			// Also set environment variables for git
+			// Set environment variables for git
 			val certPath = Paths.get(certFile)
 			if (certPath.exists()) {
-				// Note: Environment variables in JVM are immutable, but we can log the intent
-				logger.debug { "SSL_CERT_FILE should be set to: $certFile" }
+				envVars["SSL_CERT_FILE"] = certFile
+				logger.debug { "SSL_CERT_FILE will be set to: $certFile" }
+
 				certPath.parent?.let { dir ->
-					logger.debug { "SSL_CERT_DIR should be set to: ${dir.absolutePathString()}" }
+					val dirPath = dir.absolutePathString()
+					envVars["SSL_CERT_DIR"] = dirPath
+					logger.debug { "SSL_CERT_DIR will be set to: $dirPath" }
 				}
 			}
 		}
 
 		if (!ssl.verifyCertificates) {
 			logger.warn("SSL certificate verification is DISABLED. Use only for testing!")
-			// Note: We'll pass this to git commands via -c flag in syncBare
+			envVars["GIT_SSL_NO_VERIFY"] = "1"
+			logger.debug { "GIT_SSL_NO_VERIFY will be set to: 1" }
 		}
+
+		sslEnvironment = envVars
 	}
 
 	private fun findDefaultCertFile(): String? {
@@ -249,11 +306,18 @@ internal class Engine(
 					logger.lifecycle { "DRY RUN $directory ${command.joinToString(separator = " ")}" }
 					return
 				} else {
-					val process = ProcessBuilder()
+					val processBuilder = ProcessBuilder()
 						.command(command)
 						.directory(directory.toFile())
 						.redirectError(INHERIT)
-						.start()
+
+					// Apply SSL environment variables to the subprocess
+					if (sslEnvironment.isNotEmpty()) {
+						processBuilder.environment().putAll(sslEnvironment)
+						logger.debug { "Applied SSL environment variables: ${sslEnvironment.keys}" }
+					}
+
+					val process = processBuilder.start()
 
 					if (!process.waitFor(timeout)) {
 						throw IllegalStateException("Unable to sync $url into $repo: timeout $timeout")
