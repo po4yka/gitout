@@ -69,4 +69,52 @@ class ConfigTest {
 		)
 		assertThat(Config.parse(config)).isEqualTo(expected)
 	}
+
+	@Test fun sslWithCertFile() {
+		val config = """
+			|version = 0
+			|
+			|[ssl]
+			|cert_file = "/etc/ssl/certs/ca-certificates.crt"
+			|verify_certificates = true
+			""".trimMargin()
+		val expected = Config(
+			version = 0,
+			ssl = Config.Ssl(
+				certFile = "/etc/ssl/certs/ca-certificates.crt",
+				verifyCertificates = true,
+			),
+		)
+		assertThat(Config.parse(config)).isEqualTo(expected)
+	}
+
+	@Test fun sslDisableVerification() {
+		val config = """
+			|version = 0
+			|
+			|[ssl]
+			|verify_certificates = false
+			""".trimMargin()
+		val expected = Config(
+			version = 0,
+			ssl = Config.Ssl(
+				certFile = null,
+				verifyCertificates = false,
+			),
+		)
+		assertThat(Config.parse(config)).isEqualTo(expected)
+	}
+
+	@Test fun sslDefaults() {
+		val config = """
+			|version = 0
+			|
+			|[ssl]
+			""".trimMargin()
+		val expected = Config(
+			version = 0,
+			ssl = Config.Ssl(),
+		)
+		assertThat(Config.parse(config)).isEqualTo(expected)
+	}
 }

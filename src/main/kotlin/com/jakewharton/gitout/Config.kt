@@ -53,7 +53,9 @@ internal class Config(
 	@Poko
 	@Serializable
 	class Ssl(
+		@kotlinx.serialization.SerialName("cert_file")
 		val certFile: String? = null,
+		@kotlinx.serialization.SerialName("verify_certificates")
 		val verifyCertificates: Boolean = true,
 	)
 }
