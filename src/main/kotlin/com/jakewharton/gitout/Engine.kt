@@ -31,6 +31,7 @@ internal class Engine(
 	private val logger: Logger,
 	private val client: OkHttpClient,
 	private val healthCheck: HealthCheck?,
+	private val telegramService: TelegramNotificationService?,
 ) {
 	private var sslConfig: Config.Ssl = Config.Ssl()
 	private var sslEnvironment: Map<String, String> = emptyMap()
@@ -267,9 +268,13 @@ internal class Engine(
 
 		logger.info { "Starting synchronization of ${tasks.size} repositories with $workerPoolSize workers" }
 
-		// Track results
+		// Send Telegram notification about sync start
+		telegramService?.notifySyncStart(tasks.size, workerPoolSize)
+
+		// Track results and timing
 		data class SyncResult(val task: SyncTask, val success: Boolean, val error: Throwable? = null)
 		val results = mutableListOf<SyncResult>()
+		val startTime = System.currentTimeMillis()
 
 		// Create semaphore to limit concurrent operations
 		val semaphore = Semaphore(workerPoolSize)
@@ -296,18 +301,34 @@ internal class Engine(
 			}.awaitAll().also { results.addAll(it) }
 		}
 
+		// Calculate duration
+		val endTime = System.currentTimeMillis()
+		val durationSeconds = (endTime - startTime) / 1000
+
 		// Report summary
 		val successful = results.count { it.success }
 		val failed = results.count { !it.success }
 
 		logger.info { "Synchronization complete: $successful succeeded, $failed failed" }
 
+		// Send Telegram notification about completion
+		telegramService?.notifySyncCompletion(successful, failed, durationSeconds)
+
 		if (failed > 0) {
 			logger.warn("Failed repositories:")
+			val failedRepos = mutableMapOf<String, String>()
 			results.filter { !it.success }.forEach { result ->
-				logger.warn("  - ${result.task.name} (${result.task.url}): ${result.error?.message}")
+				val errorMsg = result.error?.message ?: "Unknown error"
+				logger.warn("  - ${result.task.name} (${result.task.url}): $errorMsg")
+				failedRepos[result.task.name] = errorMsg
 			}
-			throw IllegalStateException("$failed out of ${tasks.size} repositories failed to synchronize")
+
+			// Send Telegram notification about errors
+			telegramService?.notifyErrors(failedRepos)
+
+			val errorMessage = "$failed out of ${tasks.size} repositories failed to synchronize"
+			logger.warn(errorMessage)
+			throw IllegalStateException(errorMessage)
 		}
 	}
 

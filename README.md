@@ -174,6 +174,18 @@ workers = 4  # Number of repositories to sync in parallel (default: 4)
 enabled = true           # Enable metrics collection (default: true)
 format = "console"       # Output format: console, json, prometheus (default: console)
 export_path = "/var/log/gitout/metrics.json"  # Optional: export to file
+
+# Telegram notifications (optional)
+[telegram]
+token = "YOUR_BOT_TOKEN"    # Optional - can use environment variables instead
+chat_id = "123456789"       # Your Telegram chat ID (required if enabled)
+enabled = true              # Enable/disable Telegram notifications (default: true)
+notify_start = true         # Notify when sync starts (default: true)
+notify_progress = true      # Notify about progress (default: true)
+notify_completion = true    # Notify when sync completes (default: true)
+notify_errors = true        # Notify about errors (default: true)
+enable_commands = false     # Enable bot command interface (default: false)
+allowed_users = []          # List of authorized Telegram user IDs for commands
 ```
 
 ### GitHub Token Configuration
@@ -209,6 +221,253 @@ docker run -d \
   -e "GITOUT_CRON=0 * * * *" \
   po4yka/gitout
 ```
+
+### Telegram Notifications
+
+The tool can send real-time notifications to Telegram about synchronization activities. This feature is useful for monitoring backup operations and getting instant alerts about errors.
+
+#### Setting Up Telegram Bot
+
+1. **Create a Telegram Bot**:
+   - Open Telegram and search for [@BotFather](https://t.me/botfather)
+   - Send `/newbot` command
+   - Follow the prompts to set a name and username for your bot
+   - BotFather will provide you with a bot token (e.g., `123456789:ABCdefGHIjklMNOpqrsTUVwxyz`)
+   - Save this token securely
+
+2. **Get Your Chat ID**:
+   - Start a chat with your new bot (click the link provided by BotFather)
+   - Send any message to the bot
+   - Open this URL in your browser: `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates`
+   - Look for the `"chat":{"id":` field in the JSON response
+   - This number is your chat_id (e.g., `123456789` or `-987654321` for groups)
+
+3. **Configure gitout**:
+
+   Add the `[telegram]` section to your `config.toml`:
+
+   ```toml
+   [telegram]
+   token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+   chat_id = "123456789"
+   enabled = true
+   notify_start = true
+   notify_progress = true
+   notify_completion = true
+   notify_errors = true
+   # Optional: Enable bot commands and restrict access
+   enable_commands = true
+   allowed_users = [123456789, 987654321]  # List of allowed Telegram user IDs
+   ```
+
+#### Bot Commands and User Authentication
+
+The Telegram bot can respond to commands from authorized users. When `enable_commands` is enabled, the bot will:
+
+- **Start Polling**: Listen for incoming commands from users
+- **Authenticate Users**: Only respond to user IDs listed in `allowed_users`
+- **Provide Information**: Respond to queries about sync status and bot information
+
+**Available Commands**:
+- `/start` - Welcome message and command list
+- `/help` - Show detailed help about available commands
+- `/status` - Get current synchronization status (real-time if syncing)
+- `/stats` - Get repository statistics and last sync time
+- `/info` - Get bot information, version, and configuration
+
+**Getting Your Telegram User ID**:
+1. Start a chat with [@userinfobot](https://t.me/userinfobot) on Telegram
+2. The bot will reply with your user ID
+3. Add this ID to the `allowed_users` list in your `config.toml`
+
+**Security Features**:
+- **Whitelist-based**: Only users in `allowed_users` can interact with the bot
+- **Unauthorized Access Logging**: All unauthorized attempts are logged
+- **Rejection Messages**: Unauthorized users receive a clear rejection message
+
+**Example Configuration**:
+
+```toml
+[telegram]
+token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+chat_id = "123456789"              # Main chat for notifications
+enabled = true
+enable_commands = true              # Enable command interface
+allowed_users = [123456789]         # Your Telegram user ID
+notify_start = true
+notify_progress = false             # Reduce spam for frequent syncs
+notify_completion = true
+notify_errors = true
+```
+
+**Command Examples**:
+
+When you send `/status` to the bot:
+```
+📊 Last Sync Status
+
+✅ Successful: 98
+❌ Failed: 2
+📊 Success Rate: 98%
+⏱️ Duration: 5m 32s
+🏁 Finished: 2025-11-04 10:30:00
+```
+
+When you send `/stats` to the bot:
+```
+📊 Repository Statistics
+
+Last Sync: 2025-11-04 10:30:00
+Total Repositories: 100
+Successful: 98 ✅
+Failed: 2 ❌
+Success Rate: 98%
+```
+
+When you send `/info` to the bot:
+```
+ℹ️ GitOut Bot Information
+
+Version: 0.4.0-fork-SNAPSHOT
+Status: ✅ Active
+Notifications:
+  • Start: ✅
+  • Progress: ❌
+  • Completion: ✅
+  • Errors: ✅
+Commands: ✅ Enabled
+Authorized Users: 2
+```
+
+#### Telegram Token Configuration
+
+The Telegram bot token can be provided in multiple ways with the following priority order:
+
+1. **config.toml file** - Specify the token directly in the `[telegram]` section:
+   ```toml
+   [telegram]
+   token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+   chat_id = "123456789"
+   ```
+
+2. **TELEGRAM_BOT_TOKEN_FILE environment variable** - Path to a file containing the token:
+   ```bash
+   export TELEGRAM_BOT_TOKEN_FILE="/path/to/bot-token-file"
+   ```
+   This is useful for keeping secrets in separate files managed by secret management systems.
+
+3. **TELEGRAM_BOT_TOKEN environment variable** - Token value directly:
+   ```bash
+   export TELEGRAM_BOT_TOKEN="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+   ```
+
+The tool will use the first available token found in this order. If Telegram is configured but no token is found, notifications will be disabled with a warning.
+
+#### Notification Types
+
+The Telegram integration sends the following types of notifications:
+
+**Start Notification** (`notify_start`):
+- Triggered when synchronization begins
+- Shows total repository count and number of workers
+- Includes timestamp
+
+**Progress Notifications** (`notify_progress`):
+- Sent at meaningful intervals during sync (every 10%)
+- Shows completion percentage and current repository
+- Helps monitor long-running sync operations
+
+**Completion Notification** (`notify_completion`):
+- Sent when synchronization finishes
+- Shows success/failure counts and success rate
+- Includes total duration and finish timestamp
+- Uses different emoji for success (✅) vs errors (⚠️)
+
+**Error Notifications** (`notify_errors`):
+- Lists failed repositories with error messages
+- Limited to first 5 errors to avoid message size limits
+- Truncates long error messages for readability
+
+#### Docker Configuration
+
+When using Docker, pass the Telegram token via environment variables:
+
+```bash
+docker run -d \
+  -v /path/to/data:/data \
+  -v /path/to/config.toml:/config/config.toml \
+  -e "TELEGRAM_BOT_TOKEN_FILE=/secrets/telegram-token" \
+  -e "GITOUT_CRON=0 * * * *" \
+  po4yka/gitout
+```
+
+Or mount the token file:
+
+```bash
+docker run -d \
+  -v /path/to/data:/data \
+  -v /path/to/config.toml:/config/config.toml \
+  -v /path/to/telegram-token:/secrets/telegram-token:ro \
+  -e "TELEGRAM_BOT_TOKEN_FILE=/secrets/telegram-token" \
+  -e "GITOUT_CRON=0 * * * *" \
+  po4yka/gitout
+```
+
+#### Docker Compose Example
+
+```yaml
+services:
+  gitout:
+    image: po4yka/gitout:latest
+    restart: unless-stopped
+    volumes:
+      - /path/to/data:/data
+      - /path/to/config.toml:/config/config.toml
+      - /path/to/telegram-token:/secrets/telegram-token:ro
+    environment:
+      - "GITOUT_CRON=0 * * * *"
+      - "TELEGRAM_BOT_TOKEN_FILE=/secrets/telegram-token"
+      - "PUID=1000"
+      - "PGID=1000"
+```
+
+#### Notification Configuration Options
+
+You can fine-tune which notifications to receive:
+
+```toml
+[telegram]
+token = "YOUR_BOT_TOKEN"
+chat_id = "YOUR_CHAT_ID"
+enabled = true             # Master switch for all notifications
+notify_start = false       # Disable sync start notifications
+notify_progress = false    # Disable progress updates (reduces message spam)
+notify_completion = true   # Keep completion notifications
+notify_errors = true       # Keep error notifications
+```
+
+**Recommended Settings**:
+- For frequent syncs (hourly): Disable `notify_start` and `notify_progress`
+- For daily syncs: Enable all notification types
+- For critical repositories: Always enable `notify_errors` and `notify_completion`
+
+#### Troubleshooting
+
+**Bot not sending messages**:
+- Verify the bot token is correct
+- Ensure you've sent at least one message to the bot
+- Check that the chat_id is correct (use `/getUpdates` API)
+- Review logs with `-v` flag for error messages
+
+**Messages not formatted correctly**:
+- The bot uses HTML formatting by default
+- If messages look strange, there may be a Telegram API issue
+- Check Telegram's [formatting documentation](https://core.telegram.org/bots/api#html-style)
+
+**Rate limiting**:
+- Telegram has rate limits for bots (30 messages per second)
+- The tool implements smart throttling for progress notifications
+- Progress updates are sent at 10% intervals to reduce spam
 
 ### SSL/TLS Configuration
 

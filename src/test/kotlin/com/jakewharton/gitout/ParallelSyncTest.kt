@@ -382,7 +382,8 @@ class ParallelSyncTest {
 			workers = workers,
 			logger = logger,
 			client = client,
-			healthCheck = null
+			healthCheck = null,
+			telegramService = null
 		)
 	}
 }

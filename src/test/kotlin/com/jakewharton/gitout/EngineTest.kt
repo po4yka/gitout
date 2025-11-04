@@ -256,7 +256,8 @@ class EngineTest {
 				workers = null,
 				logger = logger,
 				client = client,
-				healthCheck = null
+				healthCheck = null,
+				telegramService = null
 			)
 
 			// This will fail and retry
@@ -383,7 +384,8 @@ class EngineTest {
 			workers = null,
 			logger = logger,
 			client = client,
-			healthCheck = null
+			healthCheck = null,
+			telegramService = null
 		)
 	}
 }

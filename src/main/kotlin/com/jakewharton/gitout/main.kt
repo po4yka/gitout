@@ -19,6 +19,7 @@ import io.github.kevincianfarini.cardiologist.PulseSchedule
 import io.github.kevincianfarini.cardiologist.schedulePulse
 import java.nio.file.FileSystem
 import java.nio.file.FileSystems
+import kotlin.io.path.readText
 import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
@@ -105,6 +106,16 @@ private class GitOutCommand(
 		val healthCheckService = HealthCheckService(healthCheckHost, client, logger)
 		val healthCheck = healthCheckId?.let(healthCheckService::newCheck)
 
+		// Parse config early to initialize Telegram service
+		val parsedConfig = Config.parse(config.readText())
+		val telegramService = TelegramNotificationService(parsedConfig.telegram, logger)
+
+		if (telegramService.isEnabled()) {
+			logger.info { "Telegram notifications enabled" }
+		} else {
+			logger.debug { "Telegram notifications disabled" }
+		}
+
 		val engine = Engine(
 			config = config,
 			destination = destination,
@@ -113,6 +124,7 @@ private class GitOutCommand(
 			logger = logger,
 			client = client,
 			healthCheck = healthCheck,
+			telegramService = telegramService,
 		)
 
 		val schedule = schedule

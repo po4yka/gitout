@@ -4,6 +4,7 @@ kotlin = "2.2.10"
 kotlinx-serialization = "1.9.0"
 kotlinx-coroutines = "1.10.2"
 okhttp = "5.1.0"
+telegram-bot = "6.2.0"
 
 [libraries]
 apollo-gradlePlugin = { module = "com.apollographql.apollo:apollo-gradle-plugin", version.ref = "apollo" }
@@ -24,6 +25,7 @@ ktoml = "com.akuleshov7:ktoml-core:0.7.1"
 cardiologist = "io.github.kevincianfarini.cardiologist:cardiologist:0.8.0"
 poko-gradlePlugin = "dev.drewhamilton.poko:poko-gradle-plugin:0.19.3"
 buildConfig-gradlePlugin = "com.github.gmazzo:gradle-buildconfig-plugin:3.1.0"
+telegram-bot = { module = "io.github.kotlin-telegram-bot.kotlin-telegram-bot:telegram", version.ref = "telegram-bot" }
 
 junit = "junit:junit:4.13.2"
 assertk = "com.willowtreeapps.assertk:assertk:0.28.1"

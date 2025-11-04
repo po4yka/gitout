@@ -3,7 +3,17 @@
     "allow": [
       "Bash(./gradlew build)",
       "Bash(./gradlew test:*)",
-      "Bash(git ls-tree:*)"
+      "Bash(git ls-tree:*)",
+      "WebFetch(domain:github.com)",
+      "WebSearch",
+      "WebFetch(domain:jitpack.io)",
+      "WebFetch(domain:mvnrepository.com)",
+      "Bash(./gradlew build:*)",
+      "Bash(./gradlew compileKotlin:*)",
+      "Bash(timeout 60 ./gradlew test:*)",
+      "Bash(./gradlew:*)",
+      "Bash(timeout 120 ./gradlew test:*)",
+      "Bash(pkill:*)"
     ],
     "deny": [],
     "ask": []

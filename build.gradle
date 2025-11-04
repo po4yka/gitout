@@ -37,6 +37,7 @@ dependencies {
 	implementation libs.kotlinx.serialization.core
 	implementation libs.kotlinx.coroutines.core
 	implementation libs.apollo.runtime
+	implementation libs.telegram.bot
 
 	testImplementation libs.junit
 	testImplementation libs.assertk

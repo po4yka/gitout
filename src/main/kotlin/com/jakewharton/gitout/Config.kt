@@ -13,6 +13,7 @@ internal class Config(
 	val ssl: Ssl = Ssl(),
 	val parallelism: Parallelism = Parallelism(),
 	val metrics: MetricsConfig = MetricsConfig(),
+	val telegram: Telegram? = null,
 ) {
 	companion object {
 		private val format = Toml
@@ -87,5 +88,26 @@ internal class Config(
 		val format: String = "console",
 		@kotlinx.serialization.SerialName("export_path")
 		val exportPath: String? = null,
+	)
+
+	@Poko
+	@Serializable
+	class Telegram(
+		val token: String? = null,
+		@kotlinx.serialization.SerialName("chat_id")
+		val chatId: String,
+		val enabled: Boolean = true,
+		@kotlinx.serialization.SerialName("notify_start")
+		val notifyStart: Boolean = true,
+		@kotlinx.serialization.SerialName("notify_progress")
+		val notifyProgress: Boolean = true,
+		@kotlinx.serialization.SerialName("notify_completion")
+		val notifyCompletion: Boolean = true,
+		@kotlinx.serialization.SerialName("notify_errors")
+		val notifyErrors: Boolean = true,
+		@kotlinx.serialization.SerialName("allowed_users")
+		val allowedUsers: List<Long> = emptyList(),
+		@kotlinx.serialization.SerialName("enable_commands")
+		val enableCommands: Boolean = false,
 	)
 }
