@@ -271,6 +271,16 @@ coroutineScope {
 - Always use `coroutineScope` to ensure proper error propagation
 - Use `async + awaitAll()` for parallel tasks with result collection
 
+## Git Commit Guidelines
+
+**Important Rules:**
+- **Never mention Claude, AI, or assistant tools in commit messages**
+- Keep commit messages concise and descriptive
+- Use imperative mood ("Add feature" not "Added feature")
+- Focus on what changed and why, not how it was implemented
+- Example good commit: "Add Telegram notifications for new repository discovery"
+- Example bad commit: "Add feature with Claude Code assistance"
+
 ## Release Process
 
 1. Update version in `build.gradle` (e.g., `0.4.0-fork`)
