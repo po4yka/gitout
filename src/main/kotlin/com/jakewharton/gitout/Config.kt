@@ -107,6 +107,8 @@ internal class Config(
 		val notifyErrors: Boolean = true,
 		@kotlinx.serialization.SerialName("notify_new_repos")
 		val notifyNewRepos: Boolean = true,
+		@kotlinx.serialization.SerialName("notify_updates")
+		val notifyUpdates: Boolean = false,
 		@kotlinx.serialization.SerialName("allowed_users")
 		val allowedUsers: List<Long> = emptyList(),
 		@kotlinx.serialization.SerialName("enable_commands")

@@ -325,6 +325,9 @@ internal class Engine(
 							// Notify about first-time backup completion
 							if (task.isNewRepo && !dryRun) {
 								telegramService?.notifyFirstBackup(task.name, task.url)
+							} else if (!dryRun) {
+								// Notify about regular repository update
+								telegramService?.notifyRepositoryUpdate(task.name, task.url)
 							}
 
 							SyncResult(task, success = true)

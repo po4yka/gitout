@@ -424,6 +424,26 @@ internal class TelegramNotificationService(
 	}
 
 	/**
+	 * Sends a notification about a regular repository update.
+	 *
+	 * @param repoName Name of the repository
+	 * @param repoUrl URL of the repository
+	 */
+	internal fun notifyRepositoryUpdate(repoName: String, repoUrl: String) {
+		if (!isEnabled() || config?.notifyUpdates != true) return
+
+		val message = buildString {
+			appendLine("🔄 <b>Repository Updated</b>")
+			appendLine()
+			appendLine("<b>Repository:</b> <code>$repoName</code>")
+			appendLine("<b>URL:</b> $repoUrl")
+			appendLine("⏰ ${getCurrentTimestamp()}")
+		}
+
+		sendMessage(message)
+	}
+
+	/**
 	 * Sends a test notification to verify the configuration.
 	 */
 	internal fun sendTestNotification() {

@@ -185,6 +185,7 @@ notify_progress = true      # Notify about progress (default: true)
 notify_completion = true    # Notify when sync completes (default: true)
 notify_errors = true        # Notify about errors (default: true)
 notify_new_repos = true     # Notify about new repositories discovered (default: true)
+notify_updates = false      # Notify about each repository update (default: false)
 enable_commands = false     # Enable bot command interface (default: false)
 allowed_users = []          # List of authorized Telegram user IDs for commands
 ```
@@ -401,6 +402,13 @@ The Telegram integration sends the following types of notifications:
 - Triggered after each new repository's initial clone completes
 - Helps track which new repositories have been backed up
 
+**Repository Update Notifications** (`notify_updates`):
+- Sent after each successful repository sync/update
+- Shows repository name, URL, and timestamp
+- Applies to all existing repositories (not first-time backups)
+- Disabled by default to avoid notification spam
+- Useful for monitoring specific repositories or debugging sync issues
+
 #### Docker Configuration
 
 When using Docker, pass the Telegram token via environment variables:
@@ -458,12 +466,14 @@ notify_progress = false    # Disable progress updates (reduces message spam)
 notify_completion = true   # Keep completion notifications
 notify_errors = true       # Keep error notifications
 notify_new_repos = true    # Keep new repository discovery notifications
+notify_updates = false     # Disable per-repository update notifications (default)
 ```
 
 **Recommended Settings**:
-- For frequent syncs (hourly): Disable `notify_start` and `notify_progress`, keep `notify_new_repos` enabled
-- For daily syncs: Enable all notification types
+- For frequent syncs (hourly): Disable `notify_start`, `notify_progress`, and `notify_updates`; keep `notify_new_repos` enabled
+- For daily syncs: Enable all notification types except `notify_updates` (unless monitoring specific repos)
 - For critical repositories: Always enable `notify_errors`, `notify_completion`, and `notify_new_repos`
+- For debugging: Enable `notify_updates` to see each repository sync in real-time
 
 #### Troubleshooting
 
