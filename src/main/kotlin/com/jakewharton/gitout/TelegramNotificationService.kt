@@ -381,11 +381,26 @@ internal class TelegramNotificationService(
 		if (!isEnabled() || config?.notifyErrors != true) return
 		if (!shouldNotifyForRepository(repoName)) return
 
+		// Categorize the error and get suggestions
+		val errorCategory = categorizeError(errorMessage)
+		val suggestion = getSuggestion(errorCategory)
+
 		// Truncate error message if too long
 		val truncatedError = if (errorMessage.length > 200) {
 			errorMessage.take(197) + "..."
 		} else {
 			errorMessage
+		}
+
+		// Map error category to emoji and label
+		val (categoryEmoji, categoryLabel) = when (errorCategory) {
+			ErrorCategory.NETWORK -> "🌐" to "Network Error"
+			ErrorCategory.AUTHENTICATION -> "🔒" to "Authentication Error"
+			ErrorCategory.GIT_ERROR -> "📦" to "Git Error"
+			ErrorCategory.DISK_SPACE -> "💾" to "Disk Space Error"
+			ErrorCategory.RATE_LIMITING -> "⏱️" to "Rate Limiting"
+			ErrorCategory.SSL_TLS -> "🔐" to "SSL/TLS Error"
+			ErrorCategory.UNKNOWN -> "❓" to "Unknown Error"
 		}
 
 		val message = buildString {
@@ -394,8 +409,13 @@ internal class TelegramNotificationService(
 			appendLine("<b>Repository:</b> <code>$repoName</code>")
 			appendLine("<b>URL:</b> $repoUrl")
 			appendLine()
+			appendLine("<b>Error Type:</b> $categoryEmoji $categoryLabel")
+			appendLine()
 			appendLine("<b>Error:</b>")
 			appendLine("<code>$truncatedError</code>")
+			appendLine()
+			appendLine("<b>💡 Suggestion:</b>")
+			appendLine("<i>$suggestion</i>")
 			appendLine()
 			appendLine("⏰ ${getCurrentTimestamp()}")
 		}
@@ -548,6 +568,87 @@ internal class TelegramNotificationService(
 		} catch (e: Exception) {
 			logger.warn("Invalid pattern: $pattern")
 			false
+		}
+	}
+
+	/**
+	 * Categories of errors that can occur during repository synchronization.
+	 */
+	private enum class ErrorCategory {
+		NETWORK,
+		AUTHENTICATION,
+		GIT_ERROR,
+		DISK_SPACE,
+		RATE_LIMITING,
+		SSL_TLS,
+		UNKNOWN
+	}
+
+	/**
+	 * Categorizes an error based on its message content.
+	 */
+	private fun categorizeError(errorMessage: String): ErrorCategory {
+		val lowerMessage = errorMessage.lowercase()
+
+		return when {
+			// Network errors
+			lowerMessage.contains("could not resolve host") ||
+			lowerMessage.contains("connection timed out") ||
+			lowerMessage.contains("connection refused") ||
+			lowerMessage.contains("network is unreachable") ||
+			lowerMessage.contains("no route to host") ||
+			lowerMessage.contains("temporary failure in name resolution") -> ErrorCategory.NETWORK
+
+			// Authentication errors
+			lowerMessage.contains("authentication failed") ||
+			lowerMessage.contains("invalid username or password") ||
+			lowerMessage.contains("permission denied") ||
+			lowerMessage.contains("unauthorized") ||
+			lowerMessage.contains("403 forbidden") ||
+			lowerMessage.contains("could not read username") ||
+			lowerMessage.contains("invalid credentials") -> ErrorCategory.AUTHENTICATION
+
+			// Git-specific errors
+			lowerMessage.contains("not a git repository") ||
+			lowerMessage.contains("repository not found") ||
+			lowerMessage.contains("404 not found") ||
+			lowerMessage.contains("fatal: unable to access") ||
+			lowerMessage.contains("remote: repository not found") ||
+			lowerMessage.contains("does not appear to be a git") -> ErrorCategory.GIT_ERROR
+
+			// Disk space errors
+			lowerMessage.contains("no space left on device") ||
+			lowerMessage.contains("disk quota exceeded") ||
+			lowerMessage.contains("insufficient storage") -> ErrorCategory.DISK_SPACE
+
+			// Rate limiting
+			lowerMessage.contains("rate limit") ||
+			lowerMessage.contains("too many requests") ||
+			lowerMessage.contains("429") ||
+			lowerMessage.contains("api rate limit exceeded") -> ErrorCategory.RATE_LIMITING
+
+			// SSL/TLS errors
+			lowerMessage.contains("ssl") ||
+			lowerMessage.contains("tls") ||
+			lowerMessage.contains("certificate") ||
+			lowerMessage.contains("handshake failed") -> ErrorCategory.SSL_TLS
+
+			else -> ErrorCategory.UNKNOWN
+		}
+	}
+
+	/**
+	 * Provides actionable recovery suggestions based on error category.
+	 */
+	private fun getSuggestion(category: ErrorCategory): String {
+		return when (category) {
+			ErrorCategory.NETWORK -> "Check your internet connection and DNS settings. Verify the repository URL is accessible."
+			ErrorCategory.AUTHENTICATION -> "Verify your credentials and token permissions. Ensure the token hasn't expired."
+			ErrorCategory.GIT_ERROR -> "Verify the repository exists and the URL is correct. Check if the repository has been deleted or moved."
+			ErrorCategory.DISK_SPACE -> "Free up disk space on your system. Consider archiving or removing old backups."
+			ErrorCategory.RATE_LIMITING -> "Wait before retrying. Consider reducing sync frequency or using authentication to increase rate limits."
+			ErrorCategory.SSL_TLS -> "Check SSL certificate configuration. Verify system certificates are up to date or configure cert_file in config."
+			ErrorCategory.UNKNOWN -> "Check the error message for details. Verify your configuration and network connectivity."
 		}
 	}
 
