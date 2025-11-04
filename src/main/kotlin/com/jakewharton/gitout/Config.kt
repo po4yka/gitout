@@ -3,6 +3,9 @@ package com.jakewharton.gitout
 import com.akuleshov7.ktoml.Toml
 import dev.drewhamilton.poko.Poko
 import kotlinx.serialization.Serializable
+import java.nio.file.Files
+import java.nio.file.Paths
+import kotlin.io.path.exists
 
 @Poko
 @Serializable
@@ -21,6 +24,107 @@ internal class Config(
 		fun parse(toml: String): Config {
 			return format.decodeFromString(serializer(), toml)
 		}
+	}
+
+	/**
+	 * Validates the configuration and returns a list of validation errors.
+	 * Returns an empty list if the configuration is valid.
+	 */
+	fun validate(): List<ValidationError> {
+		val errors = mutableListOf<ValidationError>()
+
+		// Validate version
+		if (version < 1) {
+			errors.add(ValidationError.InvalidVersion(version))
+		}
+
+		// Validate GitHub configuration
+		github?.let { gh ->
+			if (gh.user.isBlank()) {
+				errors.add(ValidationError.EmptyGitHubUser)
+			}
+
+			// Validate that at least one clone option is enabled or repos are specified
+			if (!gh.clone.starred && !gh.clone.watched && !gh.clone.gists && gh.clone.repos.isEmpty()) {
+				errors.add(ValidationError.NoGitHubCloneOptionsEnabled)
+			}
+		}
+
+		// Validate Git repositories URLs
+		git.repos.forEach { (name, url) ->
+			if (name.isBlank()) {
+				errors.add(ValidationError.EmptyGitRepoName(url))
+			}
+			if (url.isBlank()) {
+				errors.add(ValidationError.EmptyGitRepoUrl(name))
+			}
+			if (!isValidGitUrl(url)) {
+				errors.add(ValidationError.InvalidGitUrl(name, url))
+			}
+		}
+
+		// Validate SSL configuration
+		ssl.certFile?.let { certPath ->
+			if (certPath.isNotBlank() && !Paths.get(certPath).exists()) {
+				errors.add(ValidationError.CertFileNotFound(certPath))
+			}
+		}
+
+		// Validate parallelism configuration
+		if (parallelism.workers < 1) {
+			errors.add(ValidationError.InvalidWorkerCount(parallelism.workers))
+		}
+		if (parallelism.workers > 32) {
+			errors.add(ValidationError.TooManyWorkers(parallelism.workers))
+		}
+		if (parallelism.progressIntervalMs < 100) {
+			errors.add(ValidationError.InvalidProgressInterval(parallelism.progressIntervalMs))
+		}
+		parallelism.repositoryTimeoutSeconds?.let { timeout ->
+			if (timeout < 1) {
+				errors.add(ValidationError.InvalidRepositoryTimeout(timeout))
+			}
+		}
+
+		// Validate priority patterns
+		parallelism.priorities.forEach { pattern ->
+			if (pattern.pattern.isBlank()) {
+				errors.add(ValidationError.EmptyPriorityPattern)
+			}
+			pattern.timeout?.let { timeout ->
+				if (timeout < 1) {
+					errors.add(ValidationError.InvalidPriorityTimeout(pattern.pattern, timeout))
+				}
+			}
+		}
+
+		// Validate metrics configuration
+		if (metrics.format !in listOf("console", "json", "csv")) {
+			errors.add(ValidationError.InvalidMetricsFormat(metrics.format))
+		}
+		metrics.exportPath?.let { path ->
+			if (path.isBlank()) {
+				errors.add(ValidationError.EmptyMetricsExportPath)
+			}
+		}
+
+		// Validate Telegram configuration
+		telegram?.let { tg ->
+			if (tg.chatId.isBlank()) {
+				errors.add(ValidationError.EmptyTelegramChatId)
+			}
+			if (tg.enabled && tg.token.isNullOrBlank()) {
+				errors.add(ValidationError.MissingTelegramToken)
+			}
+		}
+
+		return errors
+	}
+
+	private fun isValidGitUrl(url: String): Boolean {
+		// Basic validation for git URLs
+		return url.matches(Regex("^(https?://|git@|git://|ssh://|file://).*")) ||
+			url.matches(Regex("^[\\w.-]+@[\\w.-]+:.*"))
 	}
 
 	@Poko
@@ -118,4 +222,79 @@ internal class Config(
 		@kotlinx.serialization.SerialName("notify_ignore_repos")
 		val notifyIgnoreRepos: List<String> = emptyList(),
 	)
+}
+
+/**
+ * Represents a validation error in the configuration.
+ */
+internal sealed class ValidationError {
+	internal abstract val message: String
+
+	internal data class InvalidVersion(val version: Int) : ValidationError() {
+		override val message = "Invalid version: $version. Version must be >= 1."
+	}
+
+	object EmptyGitHubUser : ValidationError() {
+		override val message = "GitHub user cannot be empty."
+	}
+
+	object NoGitHubCloneOptionsEnabled : ValidationError() {
+		override val message = "At least one GitHub clone option must be enabled (starred, watched, gists) or repos must be specified."
+	}
+
+	data class EmptyGitRepoName(val url: String) : ValidationError() {
+		override val message = "Git repository name cannot be empty for URL: $url"
+	}
+
+	data class EmptyGitRepoUrl(val name: String) : ValidationError() {
+		override val message = "Git repository URL cannot be empty for repository: $name"
+	}
+
+	data class InvalidGitUrl(val name: String, val url: String) : ValidationError() {
+		override val message = "Invalid git URL for repository '$name': $url"
+	}
+
+	data class CertFileNotFound(val path: String) : ValidationError() {
+		override val message = "SSL certificate file not found: $path"
+	}
+
+	data class InvalidWorkerCount(val count: Int) : ValidationError() {
+		override val message = "Invalid worker count: $count. Must be >= 1."
+	}
+
+	data class TooManyWorkers(val count: Int) : ValidationError() {
+		override val message = "Too many workers: $count. Maximum is 32."
+	}
+
+	data class InvalidProgressInterval(val interval: Long) : ValidationError() {
+		override val message = "Invalid progress interval: $interval ms. Must be >= 100."
+	}
+
+	data class InvalidRepositoryTimeout(val timeout: Int) : ValidationError() {
+		override val message = "Invalid repository timeout: $timeout seconds. Must be >= 1."
+	}
+
+	object EmptyPriorityPattern : ValidationError() {
+		override val message = "Priority pattern cannot be empty."
+	}
+
+	data class InvalidPriorityTimeout(val pattern: String, val timeout: Int) : ValidationError() {
+		override val message = "Invalid timeout for priority pattern '$pattern': $timeout seconds. Must be >= 1."
+	}
+
+	data class InvalidMetricsFormat(val format: String) : ValidationError() {
+		override val message = "Invalid metrics format: $format. Must be one of: console, json, csv."
+	}
+
+	object EmptyMetricsExportPath : ValidationError() {
+		override val message = "Metrics export path cannot be empty when specified."
+	}
+
+	object EmptyTelegramChatId : ValidationError() {
+		override val message = "Telegram chat_id cannot be empty."
+	}
+
+	object MissingTelegramToken : ValidationError() {
+		override val message = "Telegram token is required when Telegram notifications are enabled. Set token in config or TELEGRAM_BOT_TOKEN environment variable."
+	}
 }

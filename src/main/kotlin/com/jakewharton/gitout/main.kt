@@ -109,6 +109,16 @@ private class GitOutCommand(
 		// Parse config early to initialize services
 		val parsedConfig = Config.parse(config.readText())
 
+		// Validate configuration
+		val validationErrors = parsedConfig.validate()
+		if (validationErrors.isNotEmpty()) {
+			logger.lifecycle { "Configuration validation failed:" }
+			validationErrors.forEach { error ->
+				logger.lifecycle { "  - ${error.message}" }
+			}
+			throw IllegalArgumentException("Configuration contains ${validationErrors.size} validation error(s)")
+		}
+
 		// Initialize Telegram service
 		val telegramService = TelegramNotificationService(
 			config = parsedConfig.telegram,
