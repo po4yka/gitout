@@ -106,9 +106,14 @@ private class GitOutCommand(
 		val healthCheckService = HealthCheckService(healthCheckHost, client, logger)
 		val healthCheck = healthCheckId?.let(healthCheckService::newCheck)
 
-		// Parse config early to initialize Telegram service
+		// Parse config early to initialize services
 		val parsedConfig = Config.parse(config.readText())
-		val telegramService = TelegramNotificationService(parsedConfig.telegram, logger)
+
+		// Initialize Telegram service
+		val telegramService = TelegramNotificationService(
+			config = parsedConfig.telegram,
+			logger = logger,
+		)
 
 		if (telegramService.isEnabled()) {
 			logger.info { "Telegram notifications enabled" }

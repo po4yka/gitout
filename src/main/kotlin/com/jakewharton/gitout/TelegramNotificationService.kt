@@ -379,6 +379,7 @@ internal class TelegramNotificationService(
 	 */
 	internal fun notifySyncError(repoName: String, repoUrl: String, errorMessage: String) {
 		if (!isEnabled() || config?.notifyErrors != true) return
+		if (!shouldNotifyForRepository(repoName)) return
 
 		// Truncate error message if too long
 		val truncatedError = if (errorMessage.length > 200) {
@@ -410,20 +411,24 @@ internal class TelegramNotificationService(
 	internal fun notifyNewRepositories(newRepos: List<String>) {
 		if (!isEnabled() || config?.notifyNewRepos != true || newRepos.isEmpty()) return
 
+		// Filter repositories based on notification rules
+		val filteredRepos = newRepos.filter { shouldNotifyForRepository(it) }
+		if (filteredRepos.isEmpty()) return
+
 		val message = buildString {
 			appendLine("⭐ <b>New Repositories Discovered</b>")
 			appendLine()
-			appendLine("Found ${newRepos.size} new ${if (newRepos.size == 1) "repository" else "repositories"} to backup:")
+			appendLine("Found ${filteredRepos.size} new ${if (filteredRepos.size == 1) "repository" else "repositories"} to backup:")
 			appendLine()
 
 			// Limit to first 10 repositories to avoid message size limits
-			newRepos.take(10).forEach { repo ->
+			filteredRepos.take(10).forEach { repo ->
 				appendLine("• <code>$repo</code>")
 			}
 
-			if (newRepos.size > 10) {
+			if (filteredRepos.size > 10) {
 				appendLine()
-				appendLine("... and ${newRepos.size - 10} more")
+				appendLine("... and ${filteredRepos.size - 10} more")
 			}
 
 			appendLine()
@@ -441,6 +446,7 @@ internal class TelegramNotificationService(
 	 */
 	internal fun notifyFirstBackup(repoName: String, repoUrl: String) {
 		if (!isEnabled() || config?.notifyNewRepos != true) return
+		if (!shouldNotifyForRepository(repoName)) return
 
 		val message = buildString {
 			appendLine("💾 <b>First Backup Created</b>")
@@ -460,15 +466,21 @@ internal class TelegramNotificationService(
 	 *
 	 * @param repoName Name of the repository
 	 * @param repoUrl URL of the repository
+	 * @param commitCount Number of new commits (0 if unknown)
 	 */
-	internal fun notifyRepositoryUpdate(repoName: String, repoUrl: String) {
+	internal fun notifyRepositoryUpdate(repoName: String, repoUrl: String, commitCount: Int = 0) {
 		if (!isEnabled() || config?.notifyUpdates != true) return
+		if (!shouldNotifyForRepository(repoName)) return
 
 		val message = buildString {
 			appendLine("🔄 <b>Repository Updated</b>")
 			appendLine()
 			appendLine("<b>Repository:</b> <code>$repoName</code>")
 			appendLine("<b>URL:</b> $repoUrl")
+			if (commitCount > 0) {
+				val commitWord = if (commitCount == 1) "commit" else "commits"
+				appendLine("<b>Changes:</b> $commitCount new $commitWord")
+			}
 			appendLine("⏰ ${getCurrentTimestamp()}")
 		}
 
@@ -492,6 +504,51 @@ internal class TelegramNotificationService(
 		}
 
 		sendMessage(message)
+	}
+
+	/**
+	 * Checks if notifications should be sent for a specific repository.
+	 * Takes into account the whitelist (notify_only_repos) and blacklist (notify_ignore_repos).
+	 */
+	private fun shouldNotifyForRepository(repoName: String): Boolean {
+		val onlyRepos = config?.notifyOnlyRepos ?: emptyList()
+		val ignoreRepos = config?.notifyIgnoreRepos ?: emptyList()
+
+		// Check blacklist first
+		if (ignoreRepos.any { matchesPattern(repoName, it) }) {
+			logger.debug { "Repository $repoName is in ignore list" }
+			return false
+		}
+
+		// If whitelist is empty, allow all (except blacklisted)
+		if (onlyRepos.isEmpty()) {
+			return true
+		}
+
+		// Check whitelist
+		val allowed = onlyRepos.any { matchesPattern(repoName, it) }
+		if (!allowed) {
+			logger.debug { "Repository $repoName is not in notify_only list" }
+		}
+		return allowed
+	}
+
+	/**
+	 * Matches a repository name against a pattern (supports wildcards).
+	 */
+	private fun matchesPattern(repoName: String, pattern: String): Boolean {
+		// Convert glob pattern to regex
+		val regexPattern = pattern
+			.replace(".", "\\.")
+			.replace("*", ".*")
+			.replace("?", ".")
+
+		return try {
+			Regex("^$regexPattern$").matches(repoName)
+		} catch (e: Exception) {
+			logger.warn("Invalid pattern: $pattern")
+			false
+		}
 	}
 
 	/**

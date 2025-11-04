@@ -57,6 +57,14 @@ internal class Engine(
 	)
 
 	/**
+	 * Represents the result of a repository synchronization operation.
+	 */
+	private data class SyncOperationResult(
+		val hasChanges: Boolean = false,
+		val commitCount: Int = 0,
+	)
+
+	/**
 	 * Resolves the GitHub token from multiple sources with the following priority:
 	 * 1. config.toml token (if present)
 	 * 2. GITHUB_TOKEN_FILE environment variable (path to file containing token)
@@ -302,7 +310,12 @@ internal class Engine(
 		telegramService?.notifySyncStart(tasks.size, workerPoolSize)
 
 		// Track results and timing
-		data class SyncResult(val task: SyncTask, val success: Boolean, val error: Throwable? = null)
+		data class SyncResult(
+			val task: SyncTask,
+			val success: Boolean,
+			val error: Throwable? = null,
+			val durationMs: Long = 0,
+		)
 		val results = mutableListOf<SyncResult>()
 		val startTime = System.currentTimeMillis()
 
@@ -314,24 +327,27 @@ internal class Engine(
 			tasks.map { task ->
 				async(Dispatchers.IO) {
 					semaphore.withPermit {
+						val taskStartTime = System.currentTimeMillis()
 						try {
 							val reasonsStr = task.reasons?.let { " because $it" } ?: ""
 							logger.lifecycle { "Starting sync: ${task.url}$reasonsStr" }
 
-							syncBare(task.destination, task.url, dryRun, task.credentials)
+							val syncResult = syncBare(task.destination, task.url, dryRun, task.credentials)
 
+							val taskDuration = System.currentTimeMillis() - taskStartTime
 							logger.lifecycle { "Completed sync: ${task.url}" }
 
 							// Notify about first-time backup completion
 							if (task.isNewRepo && !dryRun) {
 								telegramService?.notifyFirstBackup(task.name, task.url)
-							} else if (!dryRun) {
-								// Notify about regular repository update
-								telegramService?.notifyRepositoryUpdate(task.name, task.url)
+							} else if (!dryRun && syncResult.hasChanges) {
+								// Notify about regular repository update only if there were changes
+								telegramService?.notifyRepositoryUpdate(task.name, task.url, syncResult.commitCount)
 							}
 
-							SyncResult(task, success = true)
+							SyncResult(task, success = true, durationMs = taskDuration)
 						} catch (e: Throwable) {
+							val taskDuration = System.currentTimeMillis() - taskStartTime
 							val errorMsg = e.message ?: "Unknown error"
 							logger.warn("Failed sync: ${task.url}: $errorMsg")
 
@@ -340,7 +356,7 @@ internal class Engine(
 								telegramService?.notifySyncError(task.name, task.url, errorMsg)
 							}
 
-							SyncResult(task, success = false, error = e)
+							SyncResult(task, success = false, error = e, durationMs = taskDuration)
 						}
 					}
 				}
@@ -430,19 +446,50 @@ internal class Engine(
 		return null
 	}
 
-	private suspend fun syncBare(repo: Path, url: String, dryRun: Boolean, credentials: Path? = null) {
+	private suspend fun syncBare(repo: Path, url: String, dryRun: Boolean, credentials: Path? = null): SyncOperationResult {
 		// Handle dry run separately (no retry needed)
 		if (dryRun) {
 			val command = buildGitCommand(repo, url, credentials)
 			val directory = if (repo.notExists()) repo.parent else repo
 			logger.lifecycle { "DRY RUN $directory ${command.joinToString(separator = " ")}" }
-			return
+			return SyncOperationResult(hasChanges = false, commitCount = 0)
+		}
+
+		// Get the HEAD ref before sync (if repo exists)
+		val beforeHeadRef = if (repo.exists()) {
+			getHeadRef(repo)
+		} else {
+			null
 		}
 
 		// Use retry policy for actual sync operations
 		retryPolicy.execute(operationDescription = url) { attempt ->
 			executeSyncOperation(repo, url, credentials)
 		}
+
+		// Get the HEAD ref after sync
+		val afterHeadRef = getHeadRef(repo)
+
+		// Detect changes
+		val hasChanges = beforeHeadRef == null || beforeHeadRef != afterHeadRef
+		val commitCount = if (hasChanges && beforeHeadRef != null && afterHeadRef != null) {
+			countCommitsBetween(repo, beforeHeadRef, afterHeadRef)
+		} else if (hasChanges && beforeHeadRef == null) {
+			// New repository - count all commits
+			countTotalCommits(repo)
+		} else {
+			0
+		}
+
+		logger.debug {
+			if (hasChanges) {
+				"Repository ${repo.name} has changes: $commitCount new commit(s)"
+			} else {
+				"Repository ${repo.name} has no changes"
+			}
+		}
+
+		return SyncOperationResult(hasChanges = hasChanges, commitCount = commitCount)
 	}
 
 	/**
@@ -478,6 +525,100 @@ internal class Engine(
 		}
 
 		return command
+	}
+
+	/**
+	 * Gets the current HEAD ref of a repository.
+	 * Returns null if the operation fails or the repository is empty.
+	 */
+	private fun getHeadRef(repo: Path): String? {
+		return try {
+			val process = ProcessBuilder()
+				.command("git", "-C", repo.absolutePathString(), "rev-parse", "HEAD")
+				.redirectError(ProcessBuilder.Redirect.PIPE)
+				.redirectOutput(ProcessBuilder.Redirect.PIPE)
+				.start()
+
+			if (!process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)) {
+				logger.warn("Git rev-parse timed out for ${repo.name}")
+				process.destroyForcibly()
+				return null
+			}
+
+			val exitCode = process.exitValue()
+			if (exitCode == 0) {
+				process.inputStream.bufferedReader().readText().trim()
+			} else {
+				// Repository might be empty or have no commits
+				logger.debug { "Could not get HEAD ref for ${repo.name} (exit code: $exitCode)" }
+				null
+			}
+		} catch (e: Exception) {
+			logger.debug { "Error getting HEAD ref for ${repo.name}: ${e.message}" }
+			null
+		}
+	}
+
+	/**
+	 * Counts the number of commits between two refs.
+	 * Returns 0 if the operation fails.
+	 */
+	private fun countCommitsBetween(repo: Path, beforeRef: String, afterRef: String): Int {
+		return try {
+			val process = ProcessBuilder()
+				.command("git", "-C", repo.absolutePathString(), "rev-list", "--count", "$beforeRef..$afterRef")
+				.redirectError(ProcessBuilder.Redirect.PIPE)
+				.redirectOutput(ProcessBuilder.Redirect.PIPE)
+				.start()
+
+			if (!process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)) {
+				logger.warn("Git rev-list timed out for ${repo.name}")
+				process.destroyForcibly()
+				return 0
+			}
+
+			val exitCode = process.exitValue()
+			if (exitCode == 0) {
+				process.inputStream.bufferedReader().readText().trim().toIntOrNull() ?: 0
+			} else {
+				logger.debug { "Could not count commits for ${repo.name} (exit code: $exitCode)" }
+				0
+			}
+		} catch (e: Exception) {
+			logger.debug { "Error counting commits for ${repo.name}: ${e.message}" }
+			0
+		}
+	}
+
+	/**
+	 * Counts the total number of commits in a repository.
+	 * Returns 0 if the operation fails.
+	 */
+	private fun countTotalCommits(repo: Path): Int {
+		return try {
+			val process = ProcessBuilder()
+				.command("git", "-C", repo.absolutePathString(), "rev-list", "--count", "--all")
+				.redirectError(ProcessBuilder.Redirect.PIPE)
+				.redirectOutput(ProcessBuilder.Redirect.PIPE)
+				.start()
+
+			if (!process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)) {
+				logger.warn("Git rev-list timed out for ${repo.name}")
+				process.destroyForcibly()
+				return 0
+			}
+
+			val exitCode = process.exitValue()
+			if (exitCode == 0) {
+				process.inputStream.bufferedReader().readText().trim().toIntOrNull() ?: 0
+			} else {
+				logger.debug { "Could not count total commits for ${repo.name} (exit code: $exitCode)" }
+				0
+			}
+		} catch (e: Exception) {
+			logger.debug { "Error counting total commits for ${repo.name}: ${e.message}" }
+			0
+		}
 	}
 
 	/**

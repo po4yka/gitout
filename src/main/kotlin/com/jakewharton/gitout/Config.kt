@@ -113,5 +113,9 @@ internal class Config(
 		val allowedUsers: List<Long> = emptyList(),
 		@kotlinx.serialization.SerialName("enable_commands")
 		val enableCommands: Boolean = false,
+		@kotlinx.serialization.SerialName("notify_only_repos")
+		val notifyOnlyRepos: List<String> = emptyList(),
+		@kotlinx.serialization.SerialName("notify_ignore_repos")
+		val notifyIgnoreRepos: List<String> = emptyList(),
 	)
 }
