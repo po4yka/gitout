@@ -2,3 +2,13 @@
 /.idea
 /.kotlin
 /build
+
+# Backup files
+*.bak
+*~
+
+# Test configuration files
+test-config*.toml
+
+# Temporary documentation
+*_ENHANCEMENT.md
