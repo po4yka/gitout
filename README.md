@@ -386,9 +386,12 @@ The Telegram integration sends the following types of notifications:
 - Uses different emoji for success (✅) vs errors (⚠️)
 
 **Error Notifications** (`notify_errors`):
-- Lists failed repositories with error messages
-- Limited to first 5 errors to avoid message size limits
+- **Individual notifications**: Sent immediately when each repository sync fails
+- Shows repository name, URL, error message, and timestamp
+- **Summary notification**: Sent at end of sync with all failed repositories
+- Summary limited to first 5 errors to avoid message size limits
 - Truncates long error messages for readability
+- Provides real-time alerts for critical sync failures
 
 **New Repository Notifications** (`notify_new_repos`):
 - Sent when new starred or watched repositories are discovered

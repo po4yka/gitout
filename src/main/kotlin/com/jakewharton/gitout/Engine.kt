@@ -332,7 +332,14 @@ internal class Engine(
 
 							SyncResult(task, success = true)
 						} catch (e: Throwable) {
-							logger.warn("Failed sync: ${task.url}: ${e.message}")
+							val errorMsg = e.message ?: "Unknown error"
+							logger.warn("Failed sync: ${task.url}: $errorMsg")
+
+							// Send immediate error notification
+							if (!dryRun) {
+								telegramService?.notifySyncError(task.name, task.url, errorMsg)
+							}
+
 							SyncResult(task, success = false, error = e)
 						}
 					}

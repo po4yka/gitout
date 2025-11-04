@@ -371,6 +371,38 @@ internal class TelegramNotificationService(
 	}
 
 	/**
+	 * Sends an immediate notification about a single repository sync failure.
+	 *
+	 * @param repoName Name of the repository that failed
+	 * @param repoUrl URL of the repository
+	 * @param errorMessage The error message describing what went wrong
+	 */
+	internal fun notifySyncError(repoName: String, repoUrl: String, errorMessage: String) {
+		if (!isEnabled() || config?.notifyErrors != true) return
+
+		// Truncate error message if too long
+		val truncatedError = if (errorMessage.length > 200) {
+			errorMessage.take(197) + "..."
+		} else {
+			errorMessage
+		}
+
+		val message = buildString {
+			appendLine("❌ <b>Repository Sync Failed</b>")
+			appendLine()
+			appendLine("<b>Repository:</b> <code>$repoName</code>")
+			appendLine("<b>URL:</b> $repoUrl")
+			appendLine()
+			appendLine("<b>Error:</b>")
+			appendLine("<code>$truncatedError</code>")
+			appendLine()
+			appendLine("⏰ ${getCurrentTimestamp()}")
+		}
+
+		sendMessage(message)
+	}
+
+	/**
 	 * Sends a notification about newly discovered repositories.
 	 *
 	 * @param newRepos List of newly starred/watched repository names
