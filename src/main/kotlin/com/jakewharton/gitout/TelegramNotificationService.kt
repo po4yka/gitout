@@ -371,6 +371,59 @@ internal class TelegramNotificationService(
 	}
 
 	/**
+	 * Sends a notification about newly discovered repositories.
+	 *
+	 * @param newRepos List of newly starred/watched repository names
+	 */
+	internal fun notifyNewRepositories(newRepos: List<String>) {
+		if (!isEnabled() || config?.notifyNewRepos != true || newRepos.isEmpty()) return
+
+		val message = buildString {
+			appendLine("⭐ <b>New Repositories Discovered</b>")
+			appendLine()
+			appendLine("Found ${newRepos.size} new ${if (newRepos.size == 1) "repository" else "repositories"} to backup:")
+			appendLine()
+
+			// Limit to first 10 repositories to avoid message size limits
+			newRepos.take(10).forEach { repo ->
+				appendLine("• <code>$repo</code>")
+			}
+
+			if (newRepos.size > 10) {
+				appendLine()
+				appendLine("... and ${newRepos.size - 10} more")
+			}
+
+			appendLine()
+			appendLine("These will be backed up in the next sync.")
+		}
+
+		sendMessage(message)
+	}
+
+	/**
+	 * Sends a notification about a repository's first backup.
+	 *
+	 * @param repoName Name of the repository
+	 * @param repoUrl URL of the repository
+	 */
+	internal fun notifyFirstBackup(repoName: String, repoUrl: String) {
+		if (!isEnabled() || config?.notifyNewRepos != true) return
+
+		val message = buildString {
+			appendLine("💾 <b>First Backup Created</b>")
+			appendLine()
+			appendLine("<b>Repository:</b> <code>$repoName</code>")
+			appendLine("<b>URL:</b> $repoUrl")
+			appendLine()
+			appendLine("✅ Initial backup completed successfully!")
+			appendLine("⏰ ${getCurrentTimestamp()}")
+		}
+
+		sendMessage(message)
+	}
+
+	/**
 	 * Sends a test notification to verify the configuration.
 	 */
 	internal fun sendTestNotification() {

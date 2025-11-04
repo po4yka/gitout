@@ -53,6 +53,7 @@ internal class Engine(
 		val destination: Path,
 		val credentials: Path?,
 		val reasons: Set<String>? = null,
+		val isNewRepo: Boolean = false,
 	)
 
 	/**
@@ -236,6 +237,35 @@ internal class Engine(
 			syncTasks.add(SyncTask(name, url, repoDestination, null))
 		}
 
+		// Detect new repositories and mark them in the sync tasks
+		if (!dryRun) {
+			val updatedSyncTasks = mutableListOf<SyncTask>()
+			val newRepos = mutableListOf<String>()
+
+			for (task in syncTasks) {
+				val isNew = task.destination.notExists() && (
+					task.reasons?.contains("starred") == true ||
+					task.reasons?.contains("watching") == true
+				)
+
+				if (isNew) {
+					newRepos.add(task.name)
+					updatedSyncTasks.add(task.copy(isNewRepo = true))
+				} else {
+					updatedSyncTasks.add(task)
+				}
+			}
+
+			if (newRepos.isNotEmpty()) {
+				logger.info { "Detected ${newRepos.size} new repositories to backup" }
+				telegramService?.notifyNewRepositories(newRepos)
+			}
+
+			// Replace syncTasks with the updated list
+			syncTasks.clear()
+			syncTasks.addAll(updatedSyncTasks)
+		}
+
 		// Execute all sync tasks in parallel with worker pool
 		executeSyncTasksInParallel(syncTasks, workerPoolSize, dryRun)
 
@@ -291,6 +321,12 @@ internal class Engine(
 							syncBare(task.destination, task.url, dryRun, task.credentials)
 
 							logger.lifecycle { "Completed sync: ${task.url}" }
+
+							// Notify about first-time backup completion
+							if (task.isNewRepo && !dryRun) {
+								telegramService?.notifyFirstBackup(task.name, task.url)
+							}
+
 							SyncResult(task, success = true)
 						} catch (e: Throwable) {
 							logger.warn("Failed sync: ${task.url}: ${e.message}")

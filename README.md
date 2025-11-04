@@ -184,6 +184,7 @@ notify_start = true         # Notify when sync starts (default: true)
 notify_progress = true      # Notify about progress (default: true)
 notify_completion = true    # Notify when sync completes (default: true)
 notify_errors = true        # Notify about errors (default: true)
+notify_new_repos = true     # Notify about new repositories discovered (default: true)
 enable_commands = false     # Enable bot command interface (default: false)
 allowed_users = []          # List of authorized Telegram user IDs for commands
 ```
@@ -388,6 +389,18 @@ The Telegram integration sends the following types of notifications:
 - Limited to first 5 errors to avoid message size limits
 - Truncates long error messages for readability
 
+**New Repository Notifications** (`notify_new_repos`):
+- Sent when new starred or watched repositories are discovered
+- Lists all newly detected repositories
+- Limited to first 10 repositories to avoid message size limits
+- Sent before synchronization begins
+
+**First Backup Notifications** (`notify_new_repos`):
+- Sent when a repository's first backup is successfully created
+- Shows repository name, URL, and timestamp
+- Triggered after each new repository's initial clone completes
+- Helps track which new repositories have been backed up
+
 #### Docker Configuration
 
 When using Docker, pass the Telegram token via environment variables:
@@ -444,12 +457,13 @@ notify_start = false       # Disable sync start notifications
 notify_progress = false    # Disable progress updates (reduces message spam)
 notify_completion = true   # Keep completion notifications
 notify_errors = true       # Keep error notifications
+notify_new_repos = true    # Keep new repository discovery notifications
 ```
 
 **Recommended Settings**:
-- For frequent syncs (hourly): Disable `notify_start` and `notify_progress`
+- For frequent syncs (hourly): Disable `notify_start` and `notify_progress`, keep `notify_new_repos` enabled
 - For daily syncs: Enable all notification types
-- For critical repositories: Always enable `notify_errors` and `notify_completion`
+- For critical repositories: Always enable `notify_errors`, `notify_completion`, and `notify_new_repos`
 
 #### Troubleshooting
 
