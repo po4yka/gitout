@@ -51,7 +51,8 @@ internal class GitHub(
 					val response = client.query(query).execute().dataAssertNoErrors
 					logger.trace { response.toString() }
 
-					val user = response.user!!
+					val user = response.user
+			?: throw IllegalStateException("GitHub user not found: $user. Check username and token permissions.")
 
 					val ownedEdges = user.ownedRepositories.ownedEdges.orEmpty()
 					val starredEdges = user.starredRepositories.starredEdges.orEmpty()
@@ -62,20 +63,40 @@ internal class GitHub(
 					}
 
 					for (ownedEdge in ownedEdges) {
-						owned += ownedEdge!!.node!!.nameWithOwner
-						ownedAfter = Optional.present(ownedEdge.cursor)
+						val node = ownedEdge?.node
+						if (node != null) {
+							owned += node.nameWithOwner
+							ownedAfter = Optional.present(ownedEdge.cursor)
+						} else {
+							logger.warn("Skipping owned repository with null node")
+						}
 					}
 					for (starredEdge in starredEdges) {
-						starred += starredEdge!!.node.nameWithOwner
-						starredAfter = Optional.present(starredEdge.cursor)
+						val node = starredEdge?.node
+						if (node != null) {
+							starred += node.nameWithOwner
+							starredAfter = Optional.present(starredEdge.cursor)
+						} else {
+							logger.warn("Skipping starred repository with null node")
+						}
 					}
 					for (watchingEdge in watchingEdges) {
-						watching += watchingEdge!!.node!!.nameWithOwner
-						watchingAfter = Optional.present(watchingEdge.cursor)
+						val node = watchingEdge?.node
+						if (node != null) {
+							watching += node.nameWithOwner
+							watchingAfter = Optional.present(watchingEdge.cursor)
+						} else {
+							logger.warn("Skipping watching repository with null node")
+						}
 					}
 					for (gistEdge in gistEdges) {
-						gists += gistEdge!!.node!!.name
-						gistsAfter = Optional.present(gistEdge.cursor)
+						val node = gistEdge?.node
+						if (node != null) {
+							gists += node.name
+							gistsAfter = Optional.present(gistEdge.cursor)
+						} else {
+							logger.warn("Skipping gist with null node")
+						}
 					}
 				}
 			}

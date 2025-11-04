@@ -123,6 +123,7 @@ internal class Engine(
 
 		// Collect all sync tasks
 		val syncTasks = mutableListOf<SyncTask>()
+		var githubCredentials: Path? = null
 
 		if (config.github != null) {
 			// Resolve GitHub token with priority: config.toml > GITHUB_TOKEN_FILE > GITHUB_TOKEN
@@ -182,11 +183,10 @@ internal class Engine(
 				}
 			}
 
-			val credentials = if (dryRun) {
+			githubCredentials = if (dryRun) {
 				null
 			} else {
 				Files.createTempFile("gitout-credentials-", "").apply {
-					toFile().deleteOnExit()
 					writeText(
 						HttpUrl.Builder()
 							.scheme("https")
@@ -208,7 +208,7 @@ internal class Engine(
 					.build()
 					.resolve("$nameAndOwner.git")
 					.toString()
-				syncTasks.add(SyncTask(nameAndOwner, repoUrl, repoDestination, credentials, reasons))
+				syncTasks.add(SyncTask(nameAndOwner, repoUrl, repoDestination, githubCredentials, reasons))
 			}
 
 			if (config.github.clone.gists) {
@@ -220,7 +220,7 @@ internal class Engine(
 						.host("gist.github.com")
 						.addPathSegment("$gist.git")
 						.toString()
-					syncTasks.add(SyncTask("gist:$gist", gistUrl, gistDestination, credentials))
+					syncTasks.add(SyncTask("gist:$gist", gistUrl, gistDestination, githubCredentials))
 				}
 			} else {
 				logger.debug { "Gists disabled by config" }
@@ -237,6 +237,16 @@ internal class Engine(
 
 		// Execute all sync tasks in parallel with worker pool
 		executeSyncTasksInParallel(syncTasks, workerPoolSize, dryRun)
+
+		// Clean up credentials file immediately after sync completes
+		githubCredentials?.let { credPath ->
+			try {
+				Files.deleteIfExists(credPath)
+				logger.debug { "Cleaned up credentials file" }
+			} catch (e: Exception) {
+				logger.warn("Failed to delete credentials file: ${e.message}")
+			}
+		}
 
 		startedHealthCheck?.complete()
 	}
@@ -432,6 +442,13 @@ internal class Engine(
 		val process = processBuilder.start()
 
 		if (!process.waitFor(timeout)) {
+			logger.warn("Git process timed out for $url, terminating process")
+			process.destroy()
+			if (process.isAlive) {
+				logger.warn("Process did not terminate gracefully, force destroying")
+				process.destroyForcibly()
+				process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+			}
 			throw IllegalStateException("Unable to sync $url into $repo: timeout $timeout")
 		}
 
