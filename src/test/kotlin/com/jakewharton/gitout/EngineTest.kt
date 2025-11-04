@@ -360,11 +360,35 @@ class EngineTest {
 
 	/**
 	 * Helper function to create an OkHttpClient for testing.
-	 * This may throw exceptions in environments with SSL configuration issues.
+	 * Uses a no-op SSL configuration to avoid KeyStore issues in test environments.
 	 */
 	private fun createTestClient(): okhttp3.OkHttpClient {
-		return okhttp3.OkHttpClient.Builder()
-			.build()
+		return try {
+			okhttp3.OkHttpClient.Builder()
+				.build()
+		} catch (e: Exception) {
+			// Fallback: create a minimal client that bypasses SSL for tests
+			okhttp3.OkHttpClient.Builder()
+				.sslSocketFactory(
+					createUnsafeSslSocketFactory(),
+					createTrustAllManager()
+				)
+				.hostnameVerifier { _, _ -> true }
+				.build()
+		}
+	}
+
+	private fun createUnsafeSslSocketFactory(): javax.net.ssl.SSLSocketFactory {
+		val trustAllCerts = arrayOf<javax.net.ssl.TrustManager>(createTrustAllManager())
+		val sslContext = javax.net.ssl.SSLContext.getInstance("TLS")
+		sslContext.init(null, trustAllCerts, java.security.SecureRandom())
+		return sslContext.socketFactory
+	}
+
+	private fun createTrustAllManager() = object : javax.net.ssl.X509TrustManager {
+		override fun checkClientTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) {}
+		override fun checkServerTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) {}
+		override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
 	}
 
 	/**
