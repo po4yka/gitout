@@ -3,4 +3,42 @@
   extends: [
     'config:recommended',
   ],
+  packageRules: [
+    {
+      // Group Kotlin updates together
+      matchPackagePatterns: ['kotlin'],
+      groupName: 'Kotlin',
+      schedule: ['before 3am on Monday'],
+    },
+    {
+      // Group GitHub Actions updates together
+      matchManagers: ['github-actions'],
+      groupName: 'GitHub Actions',
+      schedule: ['before 3am on Monday'],
+    },
+    {
+      // Group test dependencies together
+      matchPackagePatterns: ['junit', 'assertk', 'mockwebserver'],
+      groupName: 'Test dependencies',
+      schedule: ['before 3am on Monday'],
+    },
+    {
+      // Auto-merge minor and patch updates for non-critical dependencies
+      matchUpdateTypes: ['minor', 'patch'],
+      matchPackagePatterns: ['*'],
+      automerge: true,
+      automergeType: 'pr',
+      automergeStrategy: 'squash',
+    },
+  ],
+  // Enable Gradle manager
+  gradle: {
+    enabled: true,
+  },
+  // Labels for PRs
+  labels: ['dependencies'],
+  // Increase PR limit for Gradle
+  prConcurrentLimit: 10,
+  // Schedule updates
+  schedule: ['before 3am on Monday'],
 }

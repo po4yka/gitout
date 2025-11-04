@@ -1,5 +1,13 @@
 # Git Out
 
+[![Build & Test](https://github.com/po4yka/gitout/actions/workflows/build.yaml/badge.svg)](https://github.com/po4yka/gitout/actions/workflows/build.yaml)
+[![Publish](https://github.com/po4yka/gitout/actions/workflows/publish.yaml/badge.svg)](https://github.com/po4yka/gitout/actions/workflows/publish.yaml)
+[![CodeQL](https://github.com/po4yka/gitout/actions/workflows/codeql.yaml/badge.svg)](https://github.com/po4yka/gitout/actions/workflows/codeql.yaml)
+[![Docker Image Version](https://img.shields.io/docker/v/po4yka/gitout?sort=semver)][hub]
+[![Docker Image Size](https://img.shields.io/docker/image-size/po4yka/gitout)][hub]
+
+ [hub]: https://hub.docker.com/r/po4yka/gitout/
+
 A command-line tool to automatically backup Git repositories from GitHub or anywhere.
 
 ## Migration Notice: Rust to Kotlin
@@ -31,10 +39,7 @@ If you need access to the files, you can `git clone /path/to/bare/repo`.
 
 The binary is available inside the `po4yka/gitout` Docker container (Kotlin version with SSL improvements).
 
-[![Docker Image Version](https://img.shields.io/docker/v/po4yka/gitout?sort=semver)][hub]
-[![Docker Image Size](https://img.shields.io/docker/image-size/po4yka/gitout)][hub]
-
- [hub]: https://hub.docker.com/r/po4yka/gitout/
+Docker images are automatically built and published for multiple architectures (amd64, arm64) on every commit to master and for all version tags. Images are available on both Docker Hub and GitHub Container Registry.
 
 Mount a `/data` volume which is where the repositories will be stored.
 Mount the `/config` folder which contains a `config.toml` or mount a `/config/config.toml` file directly.
@@ -736,6 +741,134 @@ export GITOUT_CRON="0 * * * *"  # Not CRON
 # Solution: Enable parallel sync
 gitout --workers=8 config.toml /backup/path
 ```
+
+## CI/CD and Automation
+
+This project uses GitHub Actions for continuous integration, testing, and deployment. All workflows are fully automated and trigger on appropriate events.
+
+### Workflows
+
+#### Build & Test Workflow
+**File**: `.github/workflows/build.yaml`
+**Triggers**: Pull requests, pushes to master, manual dispatch
+**Purpose**: Comprehensive testing and validation
+
+**Jobs**:
+- **Test Suite**: Runs all unit and integration tests (ConfigTest, EngineTest, RetryPolicyTest, ParallelSyncTest, IntegrationTest)
+- **Build Distribution**: Creates ZIP and TAR distribution packages
+- **Docker Build Test**: Validates Docker image builds for both architectures
+- **Code Quality**: Runs code formatting and quality checks
+
+**Features**:
+- Gradle dependency caching for faster builds
+- Test result publishing with detailed reports
+- Artifact uploads for distributions and reports
+- Multi-architecture Docker builds with caching
+
+#### Publish Workflow
+**File**: `.github/workflows/publish.yaml`
+**Triggers**: Pushes to master, version tags (v*.*.*), manual dispatch
+**Purpose**: Automated publishing and release creation
+
+**Jobs**:
+- **Build Distributions**: Creates release-ready ZIP and TAR packages
+- **Publish Docker**: Builds and publishes multi-arch images to Docker Hub and GHCR
+- **Create Release**: Automatically creates GitHub releases with artifacts
+
+**Docker Images**:
+- Architectures: `linux/amd64`, `linux/arm64`
+- Registries: Docker Hub (`po4yka/gitout`) and GitHub Container Registry (`ghcr.io/po4yka/gitout`)
+- Tags: `latest`, version tags (e.g., `v0.4.0`), branch names, commit SHA
+
+**Release Features**:
+- Automatic extraction of release notes from CHANGELOG.md
+- Upload of ZIP and TAR distributions
+- Docker pull commands in release notes
+- Generated release notes from commits
+
+#### CodeQL Security Workflow
+**File**: `.github/workflows/codeql.yaml`
+**Triggers**: Pushes to master, pull requests, weekly schedule (Mondays), manual dispatch
+**Purpose**: Automated security scanning and vulnerability detection
+
+**Features**:
+- Java/Kotlin code analysis
+- Security and quality queries
+- Weekly scheduled scans
+- Integration with GitHub Security tab
+
+### Dependency Management
+
+The project uses both Renovate and Dependabot for automated dependency updates:
+
+**Renovate** (`.github/renovate.json5`):
+- Groups related updates (Kotlin, GitHub Actions, test dependencies)
+- Auto-merges minor and patch updates
+- Weekly schedule (Mondays at 3 AM)
+- Concurrent PR limit: 10
+
+**Dependabot** (`.github/dependabot.yml`):
+- Monitors Gradle dependencies, GitHub Actions, and Docker base images
+- Groups updates by category
+- Weekly schedule (Mondays at 3 AM)
+- Automatic labeling for easy review
+
+### Manual Triggers
+
+All workflows support manual triggering via workflow_dispatch:
+
+```bash
+# Using GitHub CLI
+gh workflow run build.yaml
+gh workflow run publish.yaml
+gh workflow run codeql.yaml
+```
+
+Or via the GitHub web interface: Actions → Select workflow → Run workflow
+
+### Secrets Required
+
+For full CI/CD functionality, the following secrets must be configured in repository settings:
+
+**Required for Docker Publishing**:
+- `DOCKER_HUB_TOKEN`: Docker Hub personal access token (for po4yka user)
+
+**Automatically Available**:
+- `GITHUB_TOKEN`: Provided by GitHub Actions (for GHCR and releases)
+
+### Branch Protection
+
+Recommended branch protection rules for `master`:
+- Require pull request reviews before merging
+- Require status checks to pass:
+  - Test Suite
+  - Build Distribution
+  - Docker Build Test
+  - Code Quality
+- Require conversation resolution before merging
+- Require linear history
+
+### Release Process
+
+To create a new release:
+
+1. Update version in `build.gradle` (e.g., `0.4.0-fork`)
+2. Update `CHANGELOG.md` with release notes
+3. Commit changes: `git commit -m "Prepare release 0.4.0-fork"`
+4. Create and push tag: `git tag v0.4.0-fork && git push origin v0.4.0-fork`
+5. GitHub Actions will automatically:
+   - Run all tests
+   - Build distribution packages (ZIP and TAR)
+   - Build and push multi-arch Docker images
+   - Create GitHub release with artifacts and notes
+   - Tag Docker images as `latest`, `v0.4.0-fork`, `0.4`, `0`, etc.
+
+### Monitoring Build Status
+
+Monitor workflow runs:
+- GitHub Actions tab: https://github.com/po4yka/gitout/actions
+- Build badge in README (top of page)
+- Email notifications for failed workflows (configure in GitHub settings)
 
 ## Development
 
