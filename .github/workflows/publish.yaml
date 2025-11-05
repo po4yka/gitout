@@ -36,14 +36,14 @@ jobs:
         run: ./gradlew distZip distTar
 
       - name: Upload ZIP distribution
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: gitout-zip
           path: build/distributions/gitout-*.zip
           if-no-files-found: error
 
       - name: Upload TAR distribution
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: gitout-tar
           path: build/distributions/gitout-*.tar
