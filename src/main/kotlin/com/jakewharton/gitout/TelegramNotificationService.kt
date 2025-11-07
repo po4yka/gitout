@@ -9,6 +9,7 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import java.time.Duration
 import java.time.Instant
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.io.path.exists
 import kotlin.io.path.readText
@@ -45,21 +46,24 @@ internal class TelegramNotificationService(
 	private val botStartedAt = Instant.now()
 
 	// Store repository statistics
-	private val lastSyncTime = AtomicReference<String?>(null)
-	private val totalRepositories = AtomicReference(0)
-	private val successfulRepositories = AtomicReference(0)
-	private val failedRepositories = AtomicReference(0)
+        private val lastSyncTime = AtomicReference<String?>(null)
+        private val totalRepositories = AtomicReference(0)
+        private val successfulRepositories = AtomicReference(0)
+        private val failedRepositories = AtomicReference(0)
+        private val lastProgressPercentage = AtomicInteger(0)
 
-	private val chatId = config
-		?.chatId
-		?.trim()
-		?.takeIf { it.isNotEmpty() }
-		?.let { chatValue ->
-			chatValue.toLongOrNull()?.let(ChatId::fromId) ?: run {
-				logger.warn("Telegram chat_id '$chatValue' is not a numeric ID. Notifications disabled.")
-				null
-			}
-		}
+        private val progressStepPercent = config
+                ?.notifyProgressStepPercent
+                ?.coerceAtLeast(1)
+                ?: DEFAULT_TELEGRAM_PROGRESS_STEP_PERCENT
+
+        private val errorKeywordMatchers: Map<ErrorCategory, List<String>> = buildErrorKeywordMatchers()
+
+        private val chatId = config
+                ?.chatId
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?.let(::resolveChatId)
 
 	private val bot: Bot? = when (config) {
 		null -> {
@@ -313,14 +317,15 @@ internal class TelegramNotificationService(
 	 * @param repositoryCount Total number of repositories to sync
 	 * @param workers Number of parallel workers being used
 	 */
-	internal fun notifySyncStart(repositoryCount: Int, workers: Int) {
-		isSyncing.set(true)
-		totalRepositories.set(repositoryCount)
-		lastSyncStatus.set("Syncing $repositoryCount repositories with $workers workers\nStarted: ${getCurrentTimestamp()}")
+        internal fun notifySyncStart(repositoryCount: Int, workers: Int) {
+                isSyncing.set(true)
+                totalRepositories.set(repositoryCount)
+                lastSyncStatus.set("Syncing $repositoryCount repositories with $workers workers\nStarted: ${getCurrentTimestamp()}")
+                lastProgressPercentage.set(0)
 
-		if (!isEnabled() || config?.notifyStart != true) return
+                if (!isEnabled() || config?.notifyStart != true) return
 
-		val message = buildString {
+                val message = buildString {
 			appendLine("<b>GitOut Sync Started</b>")
 			appendLine()
 			appendLine("Repositories: $repositoryCount")
@@ -338,15 +343,29 @@ internal class TelegramNotificationService(
 	 * @param total Total number of repositories
 	 * @param currentRepo Name of the current repository being synced (optional)
 	 */
-	internal fun notifyProgress(completed: Int, total: Int, currentRepo: String? = null) {
-		if (!isEnabled() || config?.notifyProgress != true) return
+        internal fun notifyProgress(completed: Int, total: Int, currentRepo: String? = null) {
+                if (!isEnabled() || config?.notifyProgress != true) return
 
-		// Only send progress updates at meaningful intervals (every 10% or so)
-		val percentage = (completed.toDouble() / total * 100).toInt()
-		if (percentage % 10 != 0 && completed != total) return
+                if (total <= 0) {
+                        logger.debug { "Skipping progress notification: total repository count is $total" }
+                        return
+                }
 
-		val message = buildString {
-			appendLine("<b>Sync Progress</b>")
+                val percentage = (completed.toDouble() / total * 100).toInt().coerceIn(0, 100)
+                val lastNotified = lastProgressPercentage.get()
+                val shouldSend = when {
+                        completed >= total -> lastNotified < 100
+                        percentage >= lastNotified + progressStepPercent -> true
+                        percentage >= 50 && lastNotified < 50 -> true
+                        else -> false
+                }
+
+                if (!shouldSend) return
+
+                lastProgressPercentage.set(if (completed >= total) 100 else percentage)
+
+                val message = buildString {
+                        appendLine("<b>Sync Progress</b>")
 			appendLine()
 			appendLine("Completed: $completed / $total ($percentage%)")
 			if (currentRepo != null) {
@@ -631,20 +650,18 @@ internal class TelegramNotificationService(
 	/**
 	 * Matches a repository name against a pattern (supports wildcards).
 	 */
-	private fun matchesPattern(repoName: String, pattern: String): Boolean {
-		// Convert glob pattern to regex
-		val regexPattern = pattern
-			.replace(".", "\\.")
-			.replace("*", ".*")
-			.replace("?", ".")
+        private fun matchesPattern(repoName: String, pattern: String): Boolean {
+                val escaped = Regex.escape(pattern)
+                        .replace("\\*", ".*")
+                        .replace("\\?", ".")
 
-		return try {
-			Regex("^$regexPattern$").matches(repoName)
-		} catch (e: Exception) {
-			logger.warn("Invalid pattern: $pattern")
-			false
-		}
-	}
+                return try {
+                        Regex("^$escaped$").matches(repoName)
+                } catch (e: Exception) {
+                        logger.warn("Invalid pattern: $pattern")
+                        false
+                }
+        }
 
 	/**
 	 * Categories of errors that can occur during repository synchronization.
@@ -662,61 +679,97 @@ internal class TelegramNotificationService(
 	/**
 	 * Categorizes an error based on its message content.
 	 */
-	private fun categorizeError(errorMessage: String): ErrorCategory {
-		val lowerMessage = errorMessage.lowercase()
+        private fun categorizeError(errorMessage: String): ErrorCategory {
+                val lowerMessage = errorMessage.lowercase()
 
-		return when {
-			// Network errors
-			lowerMessage.contains("could not resolve host") ||
-			lowerMessage.contains("connection timed out") ||
-			lowerMessage.contains("connection refused") ||
-			lowerMessage.contains("network is unreachable") ||
-			lowerMessage.contains("no route to host") ||
-			lowerMessage.contains("temporary failure in name resolution") -> ErrorCategory.NETWORK
+                errorKeywordMatchers.forEach { (category, keywords) ->
+                        if (keywords.any { lowerMessage.contains(it) }) {
+                                return category
+                        }
+                }
 
-			// Authentication errors
-			lowerMessage.contains("authentication failed") ||
-			lowerMessage.contains("invalid username or password") ||
-			lowerMessage.contains("permission denied") ||
-			lowerMessage.contains("unauthorized") ||
-			lowerMessage.contains("403 forbidden") ||
-			lowerMessage.contains("could not read username") ||
-			lowerMessage.contains("invalid credentials") -> ErrorCategory.AUTHENTICATION
+                logger.debug { "Uncategorized error message for Telegram notifications: ${errorMessage.trim()}" }
+                return ErrorCategory.UNKNOWN
+        }
 
-			// Git-specific errors
-			lowerMessage.contains("not a git repository") ||
-			lowerMessage.contains("repository not found") ||
-			lowerMessage.contains("404 not found") ||
-			lowerMessage.contains("fatal: unable to access") ||
-			lowerMessage.contains("remote: repository not found") ||
-			lowerMessage.contains("does not appear to be a git") -> ErrorCategory.GIT_ERROR
+        private fun resolveChatId(chatValue: String): ChatId? {
+                chatValue.toLongOrNull()?.let { return ChatId.fromId(it) }
 
-			// Disk space errors
-			lowerMessage.contains("no space left on device") ||
-			lowerMessage.contains("disk quota exceeded") ||
-			lowerMessage.contains("insufficient storage") -> ErrorCategory.DISK_SPACE
+                if (chatValue.isNotBlank()) {
+                        return ChatId.fromChannelUsername(chatValue)
+                }
 
-			// Rate limiting
-			lowerMessage.contains("rate limit") ||
-			lowerMessage.contains("too many requests") ||
-			lowerMessage.contains("429") ||
-			lowerMessage.contains("api rate limit exceeded") -> ErrorCategory.RATE_LIMITING
+                logger.warn("Telegram chat_id '$chatValue' is not valid. Notifications disabled.")
+                return null
+        }
 
-			// SSL/TLS errors
-			lowerMessage.contains("ssl") ||
-			lowerMessage.contains("tls") ||
-			lowerMessage.contains("certificate") ||
-			lowerMessage.contains("handshake failed") -> ErrorCategory.SSL_TLS
+        private fun buildErrorKeywordMatchers(): Map<ErrorCategory, List<String>> {
+                val defaults = mapOf(
+                        ErrorCategory.NETWORK to listOf(
+                                "could not resolve host",
+                                "connection timed out",
+                                "connection refused",
+                                "network is unreachable",
+                                "no route to host",
+                                "temporary failure in name resolution",
+                        ),
+                        ErrorCategory.AUTHENTICATION to listOf(
+                                "authentication failed",
+                                "invalid username or password",
+                                "permission denied",
+                                "unauthorized",
+                                "403 forbidden",
+                                "could not read username",
+                                "invalid credentials",
+                        ),
+                        ErrorCategory.GIT_ERROR to listOf(
+                                "not a git repository",
+                                "repository not found",
+                                "404 not found",
+                                "fatal: unable to access",
+                                "remote: repository not found",
+                                "does not appear to be a git",
+                        ),
+                        ErrorCategory.DISK_SPACE to listOf(
+                                "no space left on device",
+                                "disk quota exceeded",
+                                "insufficient storage",
+                        ),
+                        ErrorCategory.RATE_LIMITING to listOf(
+                                "rate limit",
+                                "api limit",
+                                "too many requests",
+                                "retry after",
+                                "429",
+                        ),
+                        ErrorCategory.SSL_TLS to listOf(
+                                "ssl",
+                                "tls",
+                                "certificate",
+                                "handshake failure",
+                                "handshake failed",
+                        ),
+                )
 
-			else -> ErrorCategory.UNKNOWN
-		}
-	}
+                val merged = defaults.mapValues { it.value.toMutableSet() }.toMutableMap()
 
-	/**
-	 * Provides actionable recovery suggestions based on error category.
-	 */
-	private fun getSuggestion(category: ErrorCategory): String {
-		return when (category) {
+                config?.errorKeywords?.forEach { (categoryName, keywords) ->
+                        val category = runCatching { ErrorCategory.valueOf(categoryName.uppercase()) }.getOrNull()
+                        if (category == null) {
+                                logger.warn("Unknown Telegram error category override: '$categoryName'")
+                        } else {
+                                merged.getOrPut(category) { mutableSetOf() }.addAll(keywords.map(String::lowercase))
+                        }
+                }
+
+                return merged.mapValues { (_, values) -> values.toList() }
+        }
+
+        /**
+         * Provides actionable recovery suggestions based on error category.
+         */
+        private fun getSuggestion(category: ErrorCategory): String {
+                return when (category) {
 			ErrorCategory.NETWORK -> "Check your internet connection and DNS settings. Verify the repository URL is accessible."
 			ErrorCategory.AUTHENTICATION -> "Verify your credentials and token permissions. Ensure the token hasn't expired."
 			ErrorCategory.GIT_ERROR -> "Verify the repository exists and the URL is correct. Check if the repository has been deleted or moved."
@@ -780,13 +833,15 @@ internal class TelegramNotificationService(
 		}
 	}
 
-	private fun Duration.toHumanReadable(): String {
-		val hours = this.seconds / 3600
-		val minutes = (this.seconds % 3600) / 60
-		val secs = this.seconds % 60
-		return when {
-			hours > 0 -> "${hours}h ${minutes}m ${secs}s"
-			minutes > 0 -> "${minutes}m ${secs}s"
-			else -> "${secs}s"
-		}
-	}
+        private fun Duration.toHumanReadable(): String {
+                val hours = this.seconds / 3600
+                val minutes = (this.seconds % 3600) / 60
+                val secs = this.seconds % 60
+                return when {
+                        hours > 0 -> "${hours}h ${minutes}m ${secs}s"
+                        minutes > 0 -> "${minutes}m ${secs}s"
+                        else -> "${secs}s"
+                }
+        }
+
+}
