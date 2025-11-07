@@ -166,7 +166,7 @@ internal class Config(
 		val errors = mutableListOf<ValidationError>()
 
 		// Validate version
-		if (version < 1) {
+                if (version < 0) {
 			errors.add(ValidationError.InvalidVersion(version))
 		}
 
