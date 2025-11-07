@@ -113,7 +113,7 @@ internal class Engine(
 	suspend fun performSync(dryRun: Boolean) {
 		val startedHealthCheck = healthCheck?.start()
 
-		val config = Config.parse(config.readText())
+		val config = Config.parse(config.readText(), logger)
 		logger.trace { config.toString() }
 		check(config.version == 0) {
 			"Only version 0 of the config is supported at this time"

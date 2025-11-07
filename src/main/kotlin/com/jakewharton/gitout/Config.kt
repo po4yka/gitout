@@ -1,8 +1,17 @@
 package com.jakewharton.gitout
 
 import com.akuleshov7.ktoml.Toml
+import com.akuleshov7.ktoml.TomlInputConfig
+import com.akuleshov7.ktoml.parsers.TomlParser
+import com.akuleshov7.ktoml.tree.nodes.TomlArrayOfTablesElement
+import com.akuleshov7.ktoml.tree.nodes.TomlKeyValueArray
+import com.akuleshov7.ktoml.tree.nodes.TomlKeyValuePrimitive
+import com.akuleshov7.ktoml.tree.nodes.TomlNode
+import com.akuleshov7.ktoml.tree.nodes.TomlTable
 import dev.drewhamilton.poko.Poko
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.descriptors.StructureKind
 import java.nio.file.Files
 import java.nio.file.Paths
 import kotlin.io.path.exists
@@ -19,11 +28,134 @@ internal class Config(
 	val telegram: Telegram? = null,
 ) {
 	companion object {
-		private val format = Toml
+		private val lenientToml = Toml(TomlInputConfig(ignoreUnknownNames = true))
+		private val configSchema = buildConfigSchema()
 
-		fun parse(toml: String): Config {
-			return format.decodeFromString(serializer(), toml)
+		private val allowedPaths = configSchema.allowedPaths
+		private val wildcardPrefixes = configSchema.wildcardPrefixes
+
+		fun parse(toml: String, logger: Logger? = null): Config {
+			logger?.let { logUnknownOptions(toml, it) }
+			return lenientToml.decodeFromString(serializer(), toml)
 		}
+
+		private fun logUnknownOptions(toml: String, logger: Logger) {
+			val tomlFile = runCatching { TomlParser(TomlInputConfig()).parseString(toml) }.getOrElse { return }
+			val unknownOptions = findUnknownOptions(tomlFile)
+			if (unknownOptions.isEmpty()) {
+				return
+			}
+			for (option in unknownOptions) {
+				val scopeText = option.scope?.let { " in [$it]" } ?: ""
+				val locationText = if (option.line > 0) " (line ${option.line})" else ""
+				logger.warn("Unknown config option '${option.path}'$scopeText$locationText. This option will be ignored.")
+			}
+		}
+
+		private fun findUnknownOptions(root: TomlNode): Collection<ConfigOptionPath> {
+			val discovered = mutableListOf<ConfigOptionPath>()
+			traverseNodes(root, null, discovered)
+			val unknownByPath = LinkedHashMap<String, ConfigOptionPath>()
+			for (option in discovered) {
+				if (option.path.isBlank()) {
+					continue
+				}
+				if (isAllowedPath(option.path)) {
+					continue
+				}
+				unknownByPath.putIfAbsent(option.path, option)
+			}
+			return unknownByPath.values
+		}
+
+		private fun traverseNodes(node: TomlNode, currentScope: String?, result: MutableList<ConfigOptionPath>) {
+			when (node) {
+				is TomlTable -> {
+					val nextScope = node.fullTableKey.toString().trim().ifEmpty { currentScope }
+					node.children.forEach { child ->
+						traverseNodes(child, nextScope, result)
+					}
+				}
+				is TomlArrayOfTablesElement -> node.children.forEach { child ->
+					traverseNodes(child, currentScope, result)
+				}
+				is TomlKeyValuePrimitive -> result += node.toConfigOption(currentScope)
+				is TomlKeyValueArray -> result += node.toConfigOption(currentScope)
+				else -> node.children.forEach { child ->
+					traverseNodes(child, currentScope, result)
+				}
+			}
+		}
+
+		private fun TomlNode.toConfigOption(scope: String?): ConfigOptionPath {
+			val keyName = this.name.trim()
+			val scopeName = scope?.takeIf { it.isNotBlank() }
+			val path = when {
+				scopeName.isNullOrBlank() -> keyName
+				keyName.isBlank() -> scopeName
+				else -> "$scopeName.$keyName"
+			}
+			return ConfigOptionPath(
+				path = path,
+				scope = scopeName,
+				line = lineNo,
+			)
+		}
+
+		private fun isAllowedPath(path: String): Boolean {
+			if (path in allowedPaths) {
+				return true
+			}
+			return wildcardPrefixes.any { prefix ->
+				path == prefix || path.startsWith("$prefix.")
+			}
+		}
+
+		private fun buildConfigSchema(): ConfigSchema {
+			val descriptor = serializer().descriptor
+			val allowed = mutableSetOf<String>()
+			val wildcards = mutableSetOf<String>()
+
+			fun collect(desc: SerialDescriptor, prefix: String?) {
+				for (index in 0 until desc.elementsCount) {
+					val name = desc.getElementName(index)
+					val currentPath = if (prefix.isNullOrEmpty()) name else "$prefix.$name"
+					allowed += currentPath
+					val childDescriptor = desc.getElementDescriptor(index)
+					when (childDescriptor.kind) {
+						StructureKind.CLASS,
+						StructureKind.OBJECT -> collect(childDescriptor, currentPath)
+						StructureKind.LIST -> {
+							if (childDescriptor.elementsCount > 0) {
+								val elementDescriptor = childDescriptor.getElementDescriptor(0)
+								if (elementDescriptor.kind == StructureKind.CLASS || elementDescriptor.kind == StructureKind.OBJECT) {
+									collect(elementDescriptor, currentPath)
+								}
+							}
+						}
+						StructureKind.MAP -> wildcards += currentPath
+						else -> {}
+					}
+				}
+			}
+
+			collect(descriptor, null)
+			return ConfigSchema(
+				allowedPaths = allowed,
+				wildcardPrefixes = wildcards,
+			)
+		}
+
+		private data class ConfigSchema(
+			val allowedPaths: Set<String>,
+			val wildcardPrefixes: Set<String>,
+		)
+
+		private data class ConfigOptionPath(
+			val path: String,
+			val scope: String?,
+			val line: Int,
+		)
 	}
 
 	/**

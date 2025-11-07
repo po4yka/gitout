@@ -107,7 +107,7 @@ private class GitOutCommand(
 		val healthCheck = healthCheckId?.let(healthCheckService::newCheck)
 
 		// Parse config early to initialize services
-		val parsedConfig = Config.parse(config.readText())
+		val parsedConfig = Config.parse(config.readText(), logger)
 
 		// Validate configuration
 		val validationErrors = parsedConfig.validate()

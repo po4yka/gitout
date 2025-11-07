@@ -152,4 +152,27 @@ class ConfigTest {
 		)
 		assertThat(Config.parse(config)).isEqualTo(expected)
 	}
+
+	@Test fun unknownGithubCloneOptionIgnored() {
+		val config = """
+			|version = 0
+			|
+			|[github]
+			|user = "example"
+			|
+			|[github.clone]
+			|starred = true
+			|owned = true
+			""".trimMargin()
+		val expected = Config(
+			version = 0,
+			github = Config.GitHub(
+				user = "example",
+				clone = Config.GitHub.Clone(
+					starred = true,
+				),
+			),
+		)
+		assertThat(Config.parse(config)).isEqualTo(expected)
+	}
 }
