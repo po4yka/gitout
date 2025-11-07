@@ -326,13 +326,13 @@ internal class Config(
 		val exportPath: String? = null,
 	)
 
-	@Poko
-	@Serializable
-	class Telegram(
-		val token: String? = null,
-		@kotlinx.serialization.SerialName("chat_id")
-		val chatId: String,
-		val enabled: Boolean = true,
+        @Poko
+        @Serializable
+        class Telegram(
+                val token: String? = null,
+                @kotlinx.serialization.SerialName("chat_id")
+                val chatId: String,
+                val enabled: Boolean = true,
 		@kotlinx.serialization.SerialName("notify_start")
 		val notifyStart: Boolean = true,
 		@kotlinx.serialization.SerialName("notify_progress")
@@ -341,17 +341,18 @@ internal class Config(
 		val notifyCompletion: Boolean = true,
 		@kotlinx.serialization.SerialName("notify_errors")
 		val notifyErrors: Boolean = true,
-		@kotlinx.serialization.SerialName("notify_new_repos")
-		val notifyNewRepos: Boolean = true,
-		@kotlinx.serialization.SerialName("notify_updates")
-		val notifyUpdates: Boolean = false,
-		@kotlinx.serialization.SerialName("allowed_users")
-		val allowedUsers: List<Long> = emptyList(),
-		@kotlinx.serialization.SerialName("enable_commands")
-		val enableCommands: Boolean = false,
-		@kotlinx.serialization.SerialName("notify_only_repos")
-		val notifyOnlyRepos: List<String> = emptyList(),
-		@kotlinx.serialization.SerialName("notify_ignore_repos")
+                @kotlinx.serialization.SerialName("notify_new_repos")
+                val notifyNewRepos: Boolean = true,
+                @kotlinx.serialization.SerialName("notify_updates")
+                val notifyUpdates: Boolean = false,
+                @kotlinx.serialization.SerialName("allowed_users")
+                @Serializable(with = TelegramUserIdListSerializer::class)
+                val allowedUsers: List<Long> = emptyList(),
+                @kotlinx.serialization.SerialName("enable_commands")
+                val enableCommands: Boolean = false,
+                @kotlinx.serialization.SerialName("notify_only_repos")
+                val notifyOnlyRepos: List<String> = emptyList(),
+                @kotlinx.serialization.SerialName("notify_ignore_repos")
 		val notifyIgnoreRepos: List<String> = emptyList(),
 	)
 }
