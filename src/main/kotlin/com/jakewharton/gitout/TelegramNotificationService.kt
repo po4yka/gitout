@@ -780,13 +780,15 @@ internal class TelegramNotificationService(
 		}
 	}
 
-	private fun Duration.toHumanReadable(): String {
-		val hours = this.seconds / 3600
-		val minutes = (this.seconds % 3600) / 60
-		val secs = this.seconds % 60
-		return when {
-			hours > 0 -> "${hours}h ${minutes}m ${secs}s"
-			minutes > 0 -> "${minutes}m ${secs}s"
-			else -> "${secs}s"
-		}
-	}
+        private fun Duration.toHumanReadable(): String {
+                val hours = this.seconds / 3600
+                val minutes = (this.seconds % 3600) / 60
+                val secs = this.seconds % 60
+                return when {
+                        hours > 0 -> "${hours}h ${minutes}m ${secs}s"
+                        minutes > 0 -> "${minutes}m ${secs}s"
+                        else -> "${secs}s"
+                }
+        }
+
+}
