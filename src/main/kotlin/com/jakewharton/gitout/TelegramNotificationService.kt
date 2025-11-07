@@ -65,6 +65,133 @@ internal class TelegramNotificationService(
 		else -> initializeBot(config)
 	}
 
+	private fun initializeBot(telegramConfig: Config.Telegram): Bot? {
+		if (!telegramConfig.enabled) {
+			logger.lifecycle { "Telegram notifications disabled via config flag" }
+			return null
+		}
+
+		if (chatId == null) {
+			logger.warn("Telegram configuration present but chat_id is missing or invalid. Notifications disabled.")
+			return null
+		}
+
+		val token = resolveTelegramToken(telegramConfig.token)
+		if (token == null) {
+			logger.warn("Telegram configuration present but no token found. Notifications disabled.")
+			return null
+		}
+
+		val commandsEnabled = telegramConfig.enableCommands && telegramConfig.allowedUsers.isNotEmpty()
+		if (telegramConfig.enableCommands && telegramConfig.allowedUsers.isEmpty()) {
+			logger.warn("Telegram commands requested but allowed_users is empty. Commands will remain disabled.")
+		}
+
+		return try {
+			bot {
+				this.token = token
+
+				if (commandsEnabled) {
+					dispatch {
+						command("start") {
+							handleCommand(message.from?.id, "start") {
+								"👋 Welcome to GitOut Bot!\n\nAvailable commands:\n" +
+									"/status - Get current sync status\n" +
+									"/stats - Get repository statistics\n" +
+									"/info - Get bot and repository information\n" +
+									"/help - Show this help message"
+							}
+						}
+
+						command("help") {
+							handleCommand(message.from?.id, "help") {
+								"📖 <b>GitOut Bot Help</b>\n\n" +
+									"<b>Available Commands:</b>\n" +
+									"/status - Get current synchronization status\n" +
+									"/stats - Get repository statistics and last sync time\n" +
+									"/info - Get bot and repository information\n" +
+									"/help - Show this help message\n\n" +
+									"<i>This bot monitors GitOut repository synchronization and sends notifications.</i>"
+							}
+						}
+
+						command("status") {
+							handleCommand(message.from?.id, "status") {
+								val syncing = isSyncing.get()
+								val status = lastSyncStatus.get()
+
+								if (syncing) {
+									"🔄 <b>Sync in Progress</b>\n\n$status"
+								} else {
+									"📊 <b>Last Sync Status</b>\n\n$status"
+								}
+							}
+						}
+
+						command("stats") {
+							handleCommand(message.from?.id, "stats") {
+								val lastSync = lastSyncTime.get()
+								val total = totalRepositories.get()
+								val successful = successfulRepositories.get()
+								val failed = failedRepositories.get()
+
+								if (lastSync == null) {
+									"📊 <b>Repository Statistics</b>\n\n" +
+										"No synchronization has been performed yet."
+								} else {
+									val successRate = if (total > 0) (successful.toDouble() / total * 100).toInt() else 0
+
+									buildString {
+										appendLine("📊 <b>Repository Statistics</b>\n")
+										appendLine("<b>Last Sync:</b> $lastSync")
+										appendLine("<b>Total Repositories:</b> $total")
+										appendLine("<b>Successful:</b> $successful ✅")
+										if (failed > 0) {
+											appendLine("<b>Failed:</b> $failed ❌")
+										}
+										appendLine("<b>Success Rate:</b> $successRate%")
+									}
+								}
+							}
+						}
+
+						command("info") {
+							handleCommand(message.from?.id, "info") {
+								"ℹ️ <b>GitOut Bot Information</b>\n\n" +
+									"<b>Version:</b> $version\n" +
+									"<b>Status:</b> ${if (isEnabled()) "✅ Active" else "❌ Inactive"}\n" +
+									"<b>Notifications:</b>\n" +
+									"  • Start: ${if (telegramConfig.notifyStart) "✅" else "❌"}\n" +
+									"  • Progress: ${if (telegramConfig.notifyProgress) "✅" else "❌"}\n" +
+									"  • Completion: ${if (telegramConfig.notifyCompletion) "✅" else "❌"}\n" +
+									"  • Errors: ${if (telegramConfig.notifyErrors) "✅" else "❌"}\n" +
+									"<b>Commands:</b> ${if (telegramConfig.enableCommands) "✅ Enabled" else "❌ Disabled"}\n" +
+									"<b>Authorized Users:</b> ${telegramConfig.allowedUsers.size}"
+							}
+						}
+					}
+				}
+			}.also { createdBot ->
+				logger.lifecycle {
+					val commandsState = if (commandsEnabled) {
+						"commands enabled for ${telegramConfig.allowedUsers.size} authorized user(s)"
+					} else {
+						"command interface disabled"
+					}
+					"Telegram bot initialized for chat ${telegramConfig.chatId} ($commandsState)"
+				}
+
+				if (commandsEnabled) {
+					logger.lifecycle { "Starting Telegram bot polling for commands" }
+					createdBot.startPolling()
+				}
+			}
+		} catch (e: Exception) {
+			logger.warn("Failed to initialize Telegram bot: ${e.message}")
+			null
+		}
+	}
+
 	/**
 	 * Handle a command with user authentication.
 	 */
@@ -610,132 +737,5 @@ internal class TelegramNotificationService(
 			hours > 0 -> "${hours}h ${minutes}m ${secs}s"
 			minutes > 0 -> "${minutes}m ${secs}s"
 			else -> "${secs}s"
-		}
-	}
-}
-	private fun initializeBot(telegramConfig: Config.Telegram): Bot? {
-		if (!telegramConfig.enabled) {
-			logger.lifecycle { "Telegram notifications disabled via config flag" }
-			return null
-		}
-
-		if (chatId == null) {
-			logger.warn("Telegram configuration present but chat_id is missing or invalid. Notifications disabled.")
-			return null
-		}
-
-		val token = resolveTelegramToken(telegramConfig.token)
-		if (token == null) {
-			logger.warn("Telegram configuration present but no token found. Notifications disabled.")
-			return null
-		}
-
-		val commandsEnabled = telegramConfig.enableCommands && telegramConfig.allowedUsers.isNotEmpty()
-		if (telegramConfig.enableCommands && telegramConfig.allowedUsers.isEmpty()) {
-			logger.warn("Telegram commands requested but allowed_users is empty. Commands will remain disabled.")
-		}
-
-		return try {
-			bot {
-				this.token = token
-
-				if (commandsEnabled) {
-					dispatch {
-						command("start") {
-							handleCommand(message.from?.id, "start") {
-								"👋 Welcome to GitOut Bot!\n\nAvailable commands:\n" +
-									"/status - Get current sync status\n" +
-									"/stats - Get repository statistics\n" +
-									"/info - Get bot and repository information\n" +
-									"/help - Show this help message"
-							}
-						}
-
-						command("help") {
-							handleCommand(message.from?.id, "help") {
-								"📖 <b>GitOut Bot Help</b>\n\n" +
-									"<b>Available Commands:</b>\n" +
-									"/status - Get current synchronization status\n" +
-									"/stats - Get repository statistics and last sync time\n" +
-									"/info - Get bot and repository information\n" +
-									"/help - Show this help message\n\n" +
-									"<i>This bot monitors GitOut repository synchronization and sends notifications.</i>"
-							}
-						}
-
-						command("status") {
-							handleCommand(message.from?.id, "status") {
-								val syncing = isSyncing.get()
-								val status = lastSyncStatus.get()
-
-								if (syncing) {
-									"🔄 <b>Sync in Progress</b>\n\n$status"
-								} else {
-									"📊 <b>Last Sync Status</b>\n\n$status"
-								}
-							}
-						}
-
-						command("stats") {
-							handleCommand(message.from?.id, "stats") {
-								val lastSync = lastSyncTime.get()
-								val total = totalRepositories.get()
-								val successful = successfulRepositories.get()
-								val failed = failedRepositories.get()
-
-								if (lastSync == null) {
-									"📊 <b>Repository Statistics</b>\n\n" +
-										"No synchronization has been performed yet."
-								} else {
-									val successRate = if (total > 0) (successful.toDouble() / total * 100).toInt() else 0
-
-									buildString {
-										appendLine("📊 <b>Repository Statistics</b>\n")
-										appendLine("<b>Last Sync:</b> $lastSync")
-										appendLine("<b>Total Repositories:</b> $total")
-										appendLine("<b>Successful:</b> $successful ✅")
-										if (failed > 0) {
-											appendLine("<b>Failed:</b> $failed ❌")
-										}
-										appendLine("<b>Success Rate:</b> $successRate%")
-									}
-								}
-							}
-						}
-
-						command("info") {
-							handleCommand(message.from?.id, "info") {
-								"ℹ️ <b>GitOut Bot Information</b>\n\n" +
-									"<b>Version:</b> $version\n" +
-									"<b>Status:</b> ${if (isEnabled()) "✅ Active" else "❌ Inactive"}\n" +
-									"<b>Notifications:</b>\n" +
-									"  • Start: ${if (telegramConfig.notifyStart) "✅" else "❌"}\n" +
-									"  • Progress: ${if (telegramConfig.notifyProgress) "✅" else "❌"}\n" +
-									"  • Completion: ${if (telegramConfig.notifyCompletion) "✅" else "❌"}\n" +
-									"  • Errors: ${if (telegramConfig.notifyErrors) "✅" else "❌"}\n" +
-									"<b>Commands:</b> ${if (telegramConfig.enableCommands) "✅ Enabled" else "❌ Disabled"}\n" +
-									"<b>Authorized Users:</b> ${telegramConfig.allowedUsers.size}"
-							}
-						}
-					}
-				}
-			}.also { createdBot ->
-				logger.lifecycle {
-					val commandsState = if (commandsEnabled) {
-						"commands enabled for ${telegramConfig.allowedUsers.size} authorized user(s)"
-					} else {
-						"command interface disabled"
-					}
-					"Telegram bot initialized for chat ${telegramConfig.chatId} ($commandsState)"
-				}
-
-				if (commandsEnabled) {
-					logger.lifecycle { "Starting Telegram bot polling for commands" }
-					createdBot.startPolling()
-				}
-			}
-		} catch (e: Exception) {
-			logger.warn("Failed to initialize Telegram bot: ${e.message}")
-			null
 		}
 	}
