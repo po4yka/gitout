@@ -7,6 +7,8 @@ import com.github.kotlintelegrambot.dispatcher.command
 import com.github.kotlintelegrambot.entities.ChatId
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.time.Duration
+import java.time.Instant
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.io.path.exists
 import kotlin.io.path.readText
@@ -39,6 +41,8 @@ internal class TelegramNotificationService(
 	// Store the latest sync status for command responses
 	private val lastSyncStatus = AtomicReference<String>("No sync has been performed yet")
 	private val isSyncing = AtomicReference(false)
+	private val lastFailedRepositories = AtomicReference<Map<String, String>>(emptyMap())
+	private val botStartedAt = Instant.now()
 
 	// Store repository statistics
 	private val lastSyncTime = AtomicReference<String?>(null)
@@ -93,9 +97,18 @@ internal class TelegramNotificationService(
 
 				if (commandsEnabled) {
 					dispatch {
+						command("ping") {
+							handleCommand(message.from?.id, "ping") {
+								val uptime = Duration.between(botStartedAt, Instant.now()).toHumanReadable()
+								"<b>Pong!</b>\n\n" +
+									"<b>Status:</b> ${if (isEnabled()) "Active" else "Inactive"}\n" +
+									"<b>Uptime:</b> $uptime"
+							}
+						}
+
 						command("start") {
 							handleCommand(message.from?.id, "start") {
-								"👋 Welcome to GitOut Bot!\n\nAvailable commands:\n" +
+								"Welcome to GitOut Bot!\n\nAvailable commands:\n" +
 									"/status - Get current sync status\n" +
 									"/stats - Get repository statistics\n" +
 									"/info - Get bot and repository information\n" +
@@ -105,7 +118,7 @@ internal class TelegramNotificationService(
 
 						command("help") {
 							handleCommand(message.from?.id, "help") {
-								"📖 <b>GitOut Bot Help</b>\n\n" +
+								"<b>GitOut Bot Help</b>\n\n" +
 									"<b>Available Commands:</b>\n" +
 									"/status - Get current synchronization status\n" +
 									"/stats - Get repository statistics and last sync time\n" +
@@ -121,9 +134,9 @@ internal class TelegramNotificationService(
 								val status = lastSyncStatus.get()
 
 								if (syncing) {
-									"🔄 <b>Sync in Progress</b>\n\n$status"
+									"<b>Sync in Progress</b>\n\n$status"
 								} else {
-									"📊 <b>Last Sync Status</b>\n\n$status"
+									"<b>Last Sync Status</b>\n\n$status"
 								}
 							}
 						}
@@ -136,18 +149,17 @@ internal class TelegramNotificationService(
 								val failed = failedRepositories.get()
 
 								if (lastSync == null) {
-									"📊 <b>Repository Statistics</b>\n\n" +
-										"No synchronization has been performed yet."
+									"<b>Repository Statistics</b>\n\nNo synchronization has been performed yet."
 								} else {
 									val successRate = if (total > 0) (successful.toDouble() / total * 100).toInt() else 0
 
 									buildString {
-										appendLine("📊 <b>Repository Statistics</b>\n")
+										appendLine("<b>Repository Statistics</b>\n")
 										appendLine("<b>Last Sync:</b> $lastSync")
 										appendLine("<b>Total Repositories:</b> $total")
-										appendLine("<b>Successful:</b> $successful ✅")
+										appendLine("<b>Successful:</b> $successful")
 										if (failed > 0) {
-											appendLine("<b>Failed:</b> $failed ❌")
+											appendLine("<b>Failed:</b> $failed")
 										}
 										appendLine("<b>Success Rate:</b> $successRate%")
 									}
@@ -155,17 +167,39 @@ internal class TelegramNotificationService(
 							}
 						}
 
+						command("fails") {
+							handleCommand(message.from?.id, "fails") {
+								val failures = lastFailedRepositories.get()
+								if (failures.isEmpty()) {
+									"<b>No recent repository failures.</b>"
+								} else {
+									buildString {
+										appendLine("<b>Recent Repository Failures</b>")
+										appendLine()
+										failures.entries.take(10).forEach { (repo, error) ->
+											appendLine("- <code>$repo</code>")
+											appendLine("  ${error.trim()}")
+											appendLine()
+										}
+										if (failures.size > 10) {
+											appendLine("...and ${failures.size - 10} more")
+										}
+									}
+								}
+							}
+						}
+
 						command("info") {
 							handleCommand(message.from?.id, "info") {
-								"ℹ️ <b>GitOut Bot Information</b>\n\n" +
+								"<b>GitOut Bot Information</b>\n\n" +
 									"<b>Version:</b> $version\n" +
-									"<b>Status:</b> ${if (isEnabled()) "✅ Active" else "❌ Inactive"}\n" +
+									"<b>Status:</b> ${if (isEnabled()) "Active" else "Inactive"}\n" +
 									"<b>Notifications:</b>\n" +
-									"  • Start: ${if (telegramConfig.notifyStart) "✅" else "❌"}\n" +
-									"  • Progress: ${if (telegramConfig.notifyProgress) "✅" else "❌"}\n" +
-									"  • Completion: ${if (telegramConfig.notifyCompletion) "✅" else "❌"}\n" +
-									"  • Errors: ${if (telegramConfig.notifyErrors) "✅" else "❌"}\n" +
-									"<b>Commands:</b> ${if (telegramConfig.enableCommands) "✅ Enabled" else "❌ Disabled"}\n" +
+									"  - Start: ${if (telegramConfig.notifyStart) "Enabled" else "Disabled"}\n" +
+									"  - Progress: ${if (telegramConfig.notifyProgress) "Enabled" else "Disabled"}\n" +
+									"  - Completion: ${if (telegramConfig.notifyCompletion) "Enabled" else "Disabled"}\n" +
+									"  - Errors: ${if (telegramConfig.notifyErrors) "Enabled" else "Disabled"}\n" +
+									"<b>Commands:</b> ${if (telegramConfig.enableCommands) "Enabled" else "Disabled"}\n" +
 									"<b>Authorized Users:</b> ${telegramConfig.allowedUsers.size}"
 							}
 						}
@@ -206,7 +240,7 @@ internal class TelegramNotificationService(
 			logger.warn("Unauthorized access attempt to /$commandName from user ID: $userId")
 			bot?.sendMessage(
 				chatId = ChatId.fromId(userId),
-				text = "🚫 <b>Unauthorized</b>\n\nYou are not authorized to use this bot.",
+				text = "<b>Unauthorized</b>\n\nYou are not authorized to use this bot.",
 				parseMode = com.github.kotlintelegrambot.entities.ParseMode.HTML
 			)
 			return
@@ -287,11 +321,11 @@ internal class TelegramNotificationService(
 		if (!isEnabled() || config?.notifyStart != true) return
 
 		val message = buildString {
-			appendLine("🚀 <b>GitOut Sync Started</b>")
+			appendLine("<b>GitOut Sync Started</b>")
 			appendLine()
-			appendLine("📦 Repositories: $repositoryCount")
-			appendLine("⚡ Workers: $workers")
-			appendLine("⏰ Started: ${getCurrentTimestamp()}")
+			appendLine("Repositories: $repositoryCount")
+			appendLine("Workers: $workers")
+			appendLine("Started: ${getCurrentTimestamp()}")
 		}
 
 		sendMessage(message, "sync start")
@@ -312,11 +346,11 @@ internal class TelegramNotificationService(
 		if (percentage % 10 != 0 && completed != total) return
 
 		val message = buildString {
-			appendLine("⏳ <b>Sync Progress</b>")
+			appendLine("<b>Sync Progress</b>")
 			appendLine()
-			appendLine("✅ Completed: $completed / $total ($percentage%)")
+			appendLine("Completed: $completed / $total ($percentage%)")
 			if (currentRepo != null) {
-				appendLine("🔄 Current: <code>$currentRepo</code>")
+				appendLine("Current: <code>$currentRepo</code>")
 			}
 		}
 
@@ -342,29 +376,29 @@ internal class TelegramNotificationService(
 		lastSyncTime.set(getCurrentTimestamp())
 
 		lastSyncStatus.set(
-			"✅ Successful: $successful\n" +
-			if (failed > 0) "❌ Failed: $failed\n" else "" +
-			"📊 Success Rate: $successRate%\n" +
-			"⏱️ Duration: ${formatDuration(durationSeconds)}\n" +
-			"🏁 Finished: ${getCurrentTimestamp()}"
+			"Successful: $successful\n" +
+				(if (failed > 0) "Failed: $failed\n" else "") +
+				"Success Rate: $successRate%\n" +
+				"Duration: ${formatDuration(durationSeconds)}\n" +
+				"Finished: ${getCurrentTimestamp()}"
 		)
 
 		if (!isEnabled() || config?.notifyCompletion != true) return
 
 		val message = buildString {
 			if (failed == 0) {
-				appendLine("✅ <b>GitOut Sync Completed Successfully</b>")
+				appendLine("<b>GitOut Sync Completed Successfully</b>")
 			} else {
-				appendLine("⚠️ <b>GitOut Sync Completed with Errors</b>")
+				appendLine("<b>GitOut Sync Completed with Errors</b>")
 			}
 			appendLine()
-			appendLine("✅ Successful: $successful")
+			appendLine("Successful: $successful")
 			if (failed > 0) {
-				appendLine("❌ Failed: $failed")
+				appendLine("Failed: $failed")
 			}
-			appendLine("📊 Success Rate: $successRate%")
-			appendLine("⏱️ Duration: ${formatDuration(durationSeconds)}")
-			appendLine("🏁 Finished: ${getCurrentTimestamp()}")
+			appendLine("Success Rate: $successRate%")
+			appendLine("Duration: ${formatDuration(durationSeconds)}")
+			appendLine("Finished: ${getCurrentTimestamp()}")
 		}
 
 		sendMessage(message, "sync completion")
@@ -378,15 +412,17 @@ internal class TelegramNotificationService(
 	internal fun notifyErrors(failedRepos: Map<String, String>) {
 		if (!isEnabled() || config?.notifyErrors != true || failedRepos.isEmpty()) return
 
+		lastFailedRepositories.set(failedRepos.toMap())
+
 		val message = buildString {
-			appendLine("❌ <b>Sync Errors</b>")
+			appendLine("<b>Sync Errors</b>")
 			appendLine()
 			appendLine("Failed repositories: ${failedRepos.size}")
 			appendLine()
 
 			// Limit to first 5 errors to avoid message size limits
 			failedRepos.entries.take(5).forEach { (repo, error) ->
-				appendLine("• <code>$repo</code>")
+				appendLine("- <code>$repo</code>")
 				// Truncate error message if too long
 				val truncatedError = if (error.length > 100) {
 					error.take(97) + "..."
@@ -427,35 +463,39 @@ internal class TelegramNotificationService(
 			errorMessage
 		}
 
-		// Map error category to emoji and label
-		val (categoryEmoji, categoryLabel) = when (errorCategory) {
-			ErrorCategory.NETWORK -> "🌐" to "Network Error"
-			ErrorCategory.AUTHENTICATION -> "🔒" to "Authentication Error"
-			ErrorCategory.GIT_ERROR -> "📦" to "Git Error"
-			ErrorCategory.DISK_SPACE -> "💾" to "Disk Space Error"
-			ErrorCategory.RATE_LIMITING -> "⏱️" to "Rate Limiting"
-			ErrorCategory.SSL_TLS -> "🔐" to "SSL/TLS Error"
-			ErrorCategory.UNKNOWN -> "❓" to "Unknown Error"
+		// Map error category to label
+		val categoryLabel = when (errorCategory) {
+			ErrorCategory.NETWORK -> "Network Error"
+			ErrorCategory.AUTHENTICATION -> "Authentication Error"
+			ErrorCategory.GIT_ERROR -> "Git Error"
+			ErrorCategory.DISK_SPACE -> "Disk Space Error"
+			ErrorCategory.RATE_LIMITING -> "Rate Limiting"
+			ErrorCategory.SSL_TLS -> "SSL/TLS Error"
+			ErrorCategory.UNKNOWN -> "Unknown Error"
 		}
 
 		val message = buildString {
-			appendLine("❌ <b>Repository Sync Failed</b>")
+			appendLine("<b>Repository Sync Failed</b>")
 			appendLine()
 			appendLine("<b>Repository:</b> <code>$repoName</code>")
 			appendLine("<b>URL:</b> $repoUrl")
 			appendLine()
-			appendLine("<b>Error Type:</b> $categoryEmoji $categoryLabel")
+			appendLine("<b>Error Type:</b> $categoryLabel")
 			appendLine()
 			appendLine("<b>Error:</b>")
 			appendLine("<code>$truncatedError</code>")
 			appendLine()
-			appendLine("<b>💡 Suggestion:</b>")
+			appendLine("<b>Suggestion:</b>")
 			appendLine("<i>$suggestion</i>")
 			appendLine()
-			appendLine("⏰ ${getCurrentTimestamp()}")
+			appendLine("Timestamp: ${getCurrentTimestamp()}")
 		}
 
 		sendMessage(message, "repo failure")
+
+		lastFailedRepositories.getAndUpdate { current ->
+			current + (repoName to truncatedError)
+		}
 	}
 
 	/**
@@ -471,14 +511,14 @@ internal class TelegramNotificationService(
 		if (filteredRepos.isEmpty()) return
 
 		val message = buildString {
-			appendLine("⭐ <b>New Repositories Discovered</b>")
+			appendLine("<b>New Repositories Discovered</b>")
 			appendLine()
 			appendLine("Found ${filteredRepos.size} new ${if (filteredRepos.size == 1) "repository" else "repositories"} to backup:")
 			appendLine()
 
 			// Limit to first 10 repositories to avoid message size limits
 			filteredRepos.take(10).forEach { repo ->
-				appendLine("• <code>$repo</code>")
+				appendLine("- <code>$repo</code>")
 			}
 
 			if (filteredRepos.size > 10) {
@@ -504,13 +544,13 @@ internal class TelegramNotificationService(
 		if (!shouldNotifyForRepository(repoName)) return
 
 		val message = buildString {
-			appendLine("💾 <b>First Backup Created</b>")
+			appendLine("<b>First Backup Created</b>")
 			appendLine()
 			appendLine("<b>Repository:</b> <code>$repoName</code>")
 			appendLine("<b>URL:</b> $repoUrl")
 			appendLine()
-			appendLine("✅ Initial backup completed successfully!")
-			appendLine("⏰ ${getCurrentTimestamp()}")
+			appendLine("Initial backup completed successfully!")
+			appendLine("Timestamp: ${getCurrentTimestamp()}")
 		}
 
 		sendMessage(message, "first backup")
@@ -528,7 +568,7 @@ internal class TelegramNotificationService(
 		if (!shouldNotifyForRepository(repoName)) return
 
 		val message = buildString {
-			appendLine("🔄 <b>Repository Updated</b>")
+			appendLine("<b>Repository Updated</b>")
 			appendLine()
 			appendLine("<b>Repository:</b> <code>$repoName</code>")
 			appendLine("<b>URL:</b> $repoUrl")
@@ -536,7 +576,7 @@ internal class TelegramNotificationService(
 				val commitWord = if (commitCount == 1) "commit" else "commits"
 				appendLine("<b>Changes:</b> $commitCount new $commitWord")
 			}
-			appendLine("⏰ ${getCurrentTimestamp()}")
+			appendLine("Timestamp: ${getCurrentTimestamp()}")
 		}
 
 		sendMessage(message, "repository update")
@@ -552,10 +592,10 @@ internal class TelegramNotificationService(
 		}
 
 		val message = buildString {
-			appendLine("🧪 <b>GitOut Test Notification</b>")
+			appendLine("<b>GitOut Test Notification</b>")
 			appendLine()
-			appendLine("✅ Telegram notifications are working correctly!")
-			appendLine("⏰ Sent: ${getCurrentTimestamp()}")
+			appendLine("Telegram notifications are working correctly!")
+			appendLine("Sent: ${getCurrentTimestamp()}")
 		}
 
 		sendMessage(message, "test")
@@ -733,6 +773,17 @@ internal class TelegramNotificationService(
 		val minutes = (seconds % 3600) / 60
 		val secs = seconds % 60
 
+		return when {
+			hours > 0 -> "${hours}h ${minutes}m ${secs}s"
+			minutes > 0 -> "${minutes}m ${secs}s"
+			else -> "${secs}s"
+		}
+	}
+
+	private fun Duration.toHumanReadable(): String {
+		val hours = this.seconds / 3600
+		val minutes = (this.seconds % 3600) / 60
+		val secs = this.seconds % 60
 		return when {
 			hours > 0 -> "${hours}h ${minutes}m ${secs}s"
 			minutes > 0 -> "${minutes}m ${secs}s"

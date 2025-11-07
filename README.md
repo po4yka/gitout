@@ -289,10 +289,12 @@ The Telegram bot can respond to commands from authorized users. When `enable_com
 - **Provide Information**: Respond to queries about sync status and bot information
 
 **Available Commands**:
+- `/ping` - Health check plus bot uptime
 - `/start` - Welcome message and command list
 - `/help` - Show detailed help about available commands
 - `/status` - Get current synchronization status (real-time if syncing)
 - `/stats` - Get repository statistics and last sync time
+- `/fails` - Show the most recent repository failures (if any)
 - `/info` - Get bot information, version, and configuration
 
 **Getting Your Telegram User ID**:
