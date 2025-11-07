@@ -2,6 +2,7 @@ package com.jakewharton.gitout
 
 import assertk.assertThat
 import assertk.assertions.isEqualTo
+import assertk.assertions.isEmpty
 import org.junit.Test
 
 class ConfigTest {
@@ -174,5 +175,17 @@ class ConfigTest {
 			),
 		)
 		assertThat(Config.parse(config)).isEqualTo(expected)
+	}
+
+	@Test fun telegramWithoutTokenUsesEnv() {
+		val config = Config(
+			version = 0,
+			telegram = Config.Telegram(
+				token = null,
+				chatId = "123456",
+				enabled = true,
+			),
+		)
+		assertThat(config.validate()).isEmpty()
 	}
 }

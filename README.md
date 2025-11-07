@@ -84,6 +84,24 @@ services:
 Note: You may want to specify an explicit version rather than `latest`.
 See https://hub.docker.com/r/po4yka/gitout/tags or `CHANGELOG.md` for the available versions.
 
+#### Local debugging setup
+
+The `dev/` directory contains a turnkey configuration for running GitOut
+locally with verbose logging and disposable secrets:
+
+1. Copy your GitHub and Telegram tokens into `dev/secrets/github_token.txt`
+   and `dev/secrets/telegram_bot_token.txt`.
+2. Customize `dev/config.local.toml` if you want to point at different
+   repositories or enable Telegram notifications (remember to use numeric
+   `allowed_users` IDs).
+3. Start the stack with:
+   ```bash
+   docker compose -f dev/docker-compose.local.yml up --build
+   ```
+
+The container runs once (`GITOUT_CRON` is empty) so you can iterate quickly,
+and all cloned repositories stay inside `dev/data/`.
+
 ### Binaries
 
 A `.zip` can be downloaded from the [latest GitHub release](https://github.com/JakeWharton/gitout/releases/latest).

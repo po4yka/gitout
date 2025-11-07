@@ -245,9 +245,6 @@ internal class Config(
 			if (tg.chatId.isBlank()) {
 				errors.add(ValidationError.EmptyTelegramChatId)
 			}
-			if (tg.enabled && tg.token.isNullOrBlank()) {
-				errors.add(ValidationError.MissingTelegramToken)
-			}
 		}
 
 		return errors
@@ -427,7 +424,4 @@ internal sealed class ValidationError {
 		override val message = "Telegram chat_id cannot be empty."
 	}
 
-	object MissingTelegramToken : ValidationError() {
-		override val message = "Telegram token is required when Telegram notifications are enabled. Set token in config or TELEGRAM_BOT_TOKEN environment variable."
-	}
 }

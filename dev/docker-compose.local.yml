@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  gitout:
+    build:
+      context: ..
+    image: gitout-dev:local
+    restart: "no"
+    volumes:
+      - ./config.local.toml:/config/config.toml:ro
+      - ./data:/data
+    environment:
+      - GITHUB_TOKEN_FILE=/run/secrets/github_pat
+      - TELEGRAM_BOT_TOKEN_FILE=/run/secrets/telegram_bot_token
+      - GITOUT_CRON=
+      - GITOUT_DRY_RUN=true
+      - GITOUT_WORKERS=2
+    secrets:
+      - github_pat
+      - telegram_bot_token
+    command:
+      - -vv
+      - /config/config.toml
+      - /data
+
+secrets:
+  github_pat:
+    file: ./secrets/github_token.txt
+  telegram_bot_token:
+    file: ./secrets/telegram_bot_token.txt
+

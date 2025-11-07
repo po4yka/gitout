@@ -1,0 +1,42 @@
+version = 0
+
+[github]
+user = "po4yka"
+# Leave blank to rely on GITHUB_TOKEN / GITHUB_TOKEN_FILE secrets.
+token = ""
+
+[github.archive]
+owned = true
+
+[github.clone]
+starred = true
+watched = true
+gists = true
+repos = []
+ignore = []
+
+[git.repos]
+# other-project = "https://gitlab.example.org/demo/other-project.git"
+
+[telegram]
+enabled = true
+token = ""
+chat_id = "94225168"
+notify_start = true
+notify_progress = true
+notify_completion = true
+notify_errors = true
+notify_new_repos = true
+notify_updates = true
+enable_commands = true
+allowed_users = [94225168]
+notify_only_repos = []
+notify_ignore_repos = []
+
+[parallelism]
+workers = 2
+progress_interval_ms = 1000
+
+[metrics]
+enabled = true
+format = "console"
