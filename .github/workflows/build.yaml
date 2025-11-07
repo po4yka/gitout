@@ -110,6 +110,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          load: true
           push: false
           tags: gitout:test
           cache-from: type=gha
@@ -154,10 +155,23 @@ jobs:
       - code-quality
     steps:
       - name: Check all jobs status
+        env:
+          TEST_RESULT: ${{ needs.test.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          DOCKER_RESULT: ${{ needs.docker.result }}
+          CODE_QUALITY_RESULT: ${{ needs['code-quality'].result }}
         run: |
-          results=$(tr -d '\n' <<< '${{ toJSON(needs.*.result) }}')
-          if grep -q -E '(failure|cancelled)' <<< "$results"; then
-            echo "One or more required jobs failed or were cancelled"
-            exit 1
-          fi
+          for entry in \
+            "test:$TEST_RESULT" \
+            "build:$BUILD_RESULT" \
+            "docker:$DOCKER_RESULT" \
+            "code-quality:$CODE_QUALITY_RESULT"; do
+            job=${entry%%:*}
+            result=${entry#*:}
+            if [ "$result" != "success" ]; then
+              echo "Job '$job' did not succeed (status: $result)"
+              echo "One or more required jobs failed or were cancelled"
+              exit 1
+            fi
+          done
           echo "All checks passed successfully!"
