@@ -178,13 +178,13 @@ class ConfigTest {
 	}
 
 	@Test fun telegramWithoutTokenUsesEnv() {
-		val config = Config(
-			version = 0,
-			telegram = Config.Telegram(
-				token = null,
-				chatId = "123456",
-				enabled = true,
-			),
+                val config = Config(
+                        version = 1,
+                        telegram = Config.Telegram(
+                                token = null,
+                                chatId = "123456",
+                                enabled = true,
+                        ),
 		)
 		assertThat(config.validate()).isEmpty()
 	}

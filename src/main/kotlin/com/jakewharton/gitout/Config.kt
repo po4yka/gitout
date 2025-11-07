@@ -16,6 +16,8 @@ import java.nio.file.Files
 import java.nio.file.Paths
 import kotlin.io.path.exists
 
+internal const val DEFAULT_TELEGRAM_PROGRESS_STEP_PERCENT = 10
+
 @Poko
 @Serializable
 internal class Config(
@@ -241,11 +243,14 @@ internal class Config(
 		}
 
 		// Validate Telegram configuration
-		telegram?.let { tg ->
-			if (tg.chatId.isBlank()) {
-				errors.add(ValidationError.EmptyTelegramChatId)
-			}
-		}
+                telegram?.let { tg ->
+                        if (tg.chatId.isBlank()) {
+                                errors.add(ValidationError.EmptyTelegramChatId)
+                        }
+                        if (tg.notifyProgressStepPercent !in 1..100) {
+                                errors.add(ValidationError.InvalidTelegramProgressStep(tg.notifyProgressStepPercent))
+                        }
+                }
 
 		return errors
 	}
@@ -332,12 +337,14 @@ internal class Config(
                 val enabled: Boolean = true,
 		@kotlinx.serialization.SerialName("notify_start")
 		val notifyStart: Boolean = true,
-		@kotlinx.serialization.SerialName("notify_progress")
-		val notifyProgress: Boolean = true,
-		@kotlinx.serialization.SerialName("notify_completion")
-		val notifyCompletion: Boolean = true,
-		@kotlinx.serialization.SerialName("notify_errors")
-		val notifyErrors: Boolean = true,
+                @kotlinx.serialization.SerialName("notify_progress")
+                val notifyProgress: Boolean = true,
+                @kotlinx.serialization.SerialName("notify_progress_step_percent")
+                val notifyProgressStepPercent: Int = DEFAULT_TELEGRAM_PROGRESS_STEP_PERCENT,
+                @kotlinx.serialization.SerialName("notify_completion")
+                val notifyCompletion: Boolean = true,
+                @kotlinx.serialization.SerialName("notify_errors")
+                val notifyErrors: Boolean = true,
                 @kotlinx.serialization.SerialName("notify_new_repos")
                 val notifyNewRepos: Boolean = true,
                 @kotlinx.serialization.SerialName("notify_updates")
@@ -350,8 +357,10 @@ internal class Config(
                 @kotlinx.serialization.SerialName("notify_only_repos")
                 val notifyOnlyRepos: List<String> = emptyList(),
                 @kotlinx.serialization.SerialName("notify_ignore_repos")
-		val notifyIgnoreRepos: List<String> = emptyList(),
-	)
+                val notifyIgnoreRepos: List<String> = emptyList(),
+                @kotlinx.serialization.SerialName("error_keywords")
+                val errorKeywords: Map<String, List<String>> = emptyMap(),
+        )
 }
 
 /**
@@ -416,12 +425,16 @@ internal sealed class ValidationError {
 		override val message = "Invalid metrics format: $format. Must be one of: console, json, csv."
 	}
 
-	object EmptyMetricsExportPath : ValidationError() {
-		override val message = "Metrics export path cannot be empty when specified."
-	}
+        object EmptyMetricsExportPath : ValidationError() {
+                override val message = "Metrics export path cannot be empty when specified."
+        }
 
-	object EmptyTelegramChatId : ValidationError() {
-		override val message = "Telegram chat_id cannot be empty."
-	}
+        object EmptyTelegramChatId : ValidationError() {
+                override val message = "Telegram chat_id cannot be empty."
+        }
+
+        data class InvalidTelegramProgressStep(val step: Int) : ValidationError() {
+                override val message = "Invalid Telegram progress step percent: $step. Must be between 1 and 100."
+        }
 
 }
