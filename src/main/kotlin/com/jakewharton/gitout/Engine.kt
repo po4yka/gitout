@@ -70,38 +70,41 @@ internal class Engine(
 	 * 2. GITHUB_TOKEN_FILE environment variable (path to file containing token)
 	 * 3. GITHUB_TOKEN environment variable (token value directly)
 	 */
-	private fun resolveGitHubToken(configToken: String?): String {
-		// Priority 1: Use token from config.toml if present
-		if (configToken != null) {
-			logger.debug { "Using GitHub token from config.toml" }
-			return configToken
-		}
+        private fun resolveGitHubToken(configToken: String?): String {
+                // Priority 1: Use token from config.toml if present
+                val tokenFromConfig = configToken?.trim()
+                if (!tokenFromConfig.isNullOrEmpty()) {
+                        logger.debug { "Using GitHub token from config.toml" }
+                        return tokenFromConfig
+                } else if (configToken != null) {
+                        logger.warn("GitHub token in config.toml is blank. Falling back to environment variables.")
+                }
 
-		// Priority 2: Check GITHUB_TOKEN_FILE environment variable
-		val tokenFilePath = System.getenv("GITHUB_TOKEN_FILE")
-		if (tokenFilePath != null) {
-			val tokenFile = Paths.get(tokenFilePath)
+                // Priority 2: Check GITHUB_TOKEN_FILE environment variable
+                val tokenFilePath = System.getenv("GITHUB_TOKEN_FILE")
+                if (tokenFilePath != null) {
+                        val tokenFile = Paths.get(tokenFilePath)
 			if (tokenFile.exists()) {
-				val token = tokenFile.readText().trim()
-				if (token.isNotEmpty()) {
-					logger.debug { "Using GitHub token from GITHUB_TOKEN_FILE: $tokenFilePath" }
-					return token
-				} else {
-					logger.warn("GITHUB_TOKEN_FILE is empty: $tokenFilePath")
-				}
+                                val token = tokenFile.readText().trim()
+                                if (token.isNotEmpty()) {
+                                        logger.debug { "Using GitHub token from GITHUB_TOKEN_FILE: $tokenFilePath" }
+                                        return token
+                                } else {
+                                        logger.warn("GITHUB_TOKEN_FILE is empty: $tokenFilePath")
+                                }
 			} else {
 				logger.warn("GITHUB_TOKEN_FILE does not exist: $tokenFilePath")
 			}
 		}
 
 		// Priority 3: Check GITHUB_TOKEN environment variable
-		val tokenEnv = System.getenv("GITHUB_TOKEN")
-		if (tokenEnv != null && tokenEnv.isNotEmpty()) {
-			logger.debug { "Using GitHub token from GITHUB_TOKEN environment variable" }
-			return tokenEnv
-		}
+                val tokenEnv = System.getenv("GITHUB_TOKEN")?.trim()
+                if (tokenEnv != null && tokenEnv.isNotEmpty()) {
+                        logger.debug { "Using GitHub token from GITHUB_TOKEN environment variable" }
+                        return tokenEnv
+                }
 
-		// No token found anywhere
+                // No token found anywhere
 		throw IllegalStateException(
 			"GitHub token not found. Please provide a token via:\n" +
 			"  1. config.toml [github] token field\n" +
