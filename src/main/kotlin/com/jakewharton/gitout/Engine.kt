@@ -4,6 +4,7 @@ import java.lang.ProcessBuilder.Redirect.INHERIT
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.util.Comparator
 import kotlin.io.path.absolutePathString
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
@@ -19,7 +20,6 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 
@@ -269,7 +269,9 @@ internal class Engine(
 
 			if (newRepos.isNotEmpty()) {
 				logger.info { "Detected ${newRepos.size} new repositories to backup" }
-				telegramService?.notifyNewRepositories(newRepos)
+                                telegramService.safeNotify("new repositories") {
+                                        notifyNewRepositories(newRepos)
+                                }
 			}
 
 			// Replace syncTasks with the updated list
@@ -310,7 +312,9 @@ internal class Engine(
 		logger.info { "Starting synchronization of ${tasks.size} repositories with $workerPoolSize workers" }
 
 		// Send Telegram notification about sync start
-		telegramService?.notifySyncStart(tasks.size, workerPoolSize)
+                telegramService.safeNotify("sync start") {
+                        notifySyncStart(tasks.size, workerPoolSize)
+                }
 
 		// Track results and timing
 		data class SyncResult(
@@ -341,12 +345,16 @@ internal class Engine(
 							logger.lifecycle { "Completed sync: ${task.url}" }
 
 							// Notify about first-time backup completion
-							if (task.isNewRepo && !dryRun) {
-								telegramService?.notifyFirstBackup(task.name, task.url)
-							} else if (!dryRun && syncResult.hasChanges) {
-								// Notify about regular repository update only if there were changes
-								telegramService?.notifyRepositoryUpdate(task.name, task.url, syncResult.commitCount)
-							}
+                                                        if (task.isNewRepo && !dryRun) {
+                                                                telegramService.safeNotify("first backup") {
+                                                                        notifyFirstBackup(task.name, task.url)
+                                                                }
+                                                        } else if (!dryRun && syncResult.hasChanges) {
+                                                                // Notify about regular repository update only if there were changes
+                                                                telegramService.safeNotify("repository update") {
+                                                                        notifyRepositoryUpdate(task.name, task.url, syncResult.commitCount)
+                                                                }
+                                                        }
 
 							SyncResult(task, success = true, durationMs = taskDuration)
 						} catch (e: Throwable) {
@@ -355,9 +363,11 @@ internal class Engine(
 							logger.warn("Failed sync: ${task.url}: $errorMsg")
 
 							// Send immediate error notification
-							if (!dryRun) {
-								telegramService?.notifySyncError(task.name, task.url, errorMsg)
-							}
+                                                        if (!dryRun) {
+                                                                telegramService.safeNotify("sync error") {
+                                                                        notifySyncError(task.name, task.url, errorMsg)
+                                                                }
+                                                        }
 
 							SyncResult(task, success = false, error = e, durationMs = taskDuration)
 						}
@@ -377,7 +387,9 @@ internal class Engine(
 		logger.info { "Synchronization complete: $successful succeeded, $failed failed" }
 
 		// Send Telegram notification about completion
-		telegramService?.notifySyncCompletion(successful, failed, durationSeconds)
+                telegramService.safeNotify("sync completion") {
+                        notifySyncCompletion(successful, failed, durationSeconds)
+                }
 
 		if (failed > 0) {
 			logger.warn("Failed repositories:")
@@ -389,7 +401,9 @@ internal class Engine(
 			}
 
 			// Send Telegram notification about errors
-			telegramService?.notifyErrors(failedRepos)
+                        telegramService.safeNotify("sync errors summary") {
+                                notifyErrors(failedRepos)
+                        }
 
 			val errorMessage = "$failed out of ${tasks.size} repositories failed to synchronize"
 			logger.warn(errorMessage)
@@ -449,17 +463,19 @@ internal class Engine(
 		return null
 	}
 
-	private suspend fun syncBare(repo: Path, url: String, dryRun: Boolean, credentials: Path? = null): SyncOperationResult {
-		// Handle dry run separately (no retry needed)
-		if (dryRun) {
-			val command = buildGitCommand(repo, url, credentials)
-			val directory = if (repo.notExists()) repo.parent else repo
+        private suspend fun syncBare(repo: Path, url: String, dryRun: Boolean, credentials: Path? = null): SyncOperationResult {
+                val repoExists = repo.exists()
+
+                // Handle dry run separately (no retry needed)
+                if (dryRun) {
+                        val command = buildGitCommand(repo, url, credentials, repoExists)
+                        val directory = if (!repoExists) repo.parent else repo
 			logger.lifecycle { "DRY RUN $directory ${command.joinToString(separator = " ")}" }
 			return SyncOperationResult(hasChanges = false, commitCount = 0)
 		}
 
 		// Get the HEAD ref before sync (if repo exists)
-		val beforeHeadRef = if (repo.exists()) {
+                val beforeHeadRef = if (repoExists) {
 			getHeadRef(repo)
 		} else {
 			null
@@ -498,8 +514,13 @@ internal class Engine(
 	/**
 	 * Builds the git command for syncing a repository.
 	 */
-	private fun buildGitCommand(repo: Path, url: String, credentials: Path?): List<String> {
-		val command = mutableListOf("git")
+        private fun buildGitCommand(
+                repo: Path,
+                url: String,
+                credentials: Path?,
+                repoExists: Boolean,
+        ): List<String> {
+                val command = mutableListOf("git")
 
 		// Add SSL configuration
 		if (!sslConfig.verifyCertificates) {
@@ -512,7 +533,7 @@ internal class Engine(
 			command.add("""credential.helper=store --file=${credentials.absolutePathString()}""")
 		}
 
-		if (repo.notExists()) {
+                if (!repoExists) {
 			command.apply {
 				add("clone")
 				add("--mirror")
@@ -628,46 +649,89 @@ internal class Engine(
 	 * Executes a single git sync operation.
 	 * Throws an exception if the operation fails.
 	 */
-	private fun executeSyncOperation(repo: Path, url: String, credentials: Path?) {
-		val command = buildGitCommand(repo, url, credentials)
+        private fun executeSyncOperation(repo: Path, url: String, credentials: Path?) {
+                val repoExistsBeforeCommand = repo.exists()
+                val command = buildGitCommand(repo, url, credentials, repoExistsBeforeCommand)
 
-		val directory = if (repo.notExists()) {
-			repo.parent.apply {
-				createDirectories()
-			}
-		} else {
-			repo
-		}
+                val directory = if (!repoExistsBeforeCommand) {
+                        repo.parent.apply {
+                                createDirectories()
+                        }
+                } else {
+                        repo
+                }
 
-		val processBuilder = ProcessBuilder()
-			.command(command)
-			.directory(directory.toFile())
-			.redirectError(INHERIT)
+                val processBuilder = ProcessBuilder()
+                        .command(command)
+                        .directory(directory.toFile())
+                        .redirectError(INHERIT)
 
-		// Apply SSL environment variables to the subprocess
-		if (sslEnvironment.isNotEmpty()) {
-			processBuilder.environment().putAll(sslEnvironment)
-			logger.debug { "Applied SSL environment variables: ${sslEnvironment.keys}" }
-		}
+                // Apply SSL environment variables to the subprocess
+                if (sslEnvironment.isNotEmpty()) {
+                        processBuilder.environment().putAll(sslEnvironment)
+                        logger.debug { "Applied SSL environment variables: ${sslEnvironment.keys}" }
+                }
 
-		val process = processBuilder.start()
+                val process = processBuilder.start()
 
-		if (!process.waitFor(timeout)) {
-			logger.warn("Git process timed out for $url, terminating process")
-			process.destroy()
-			if (process.isAlive) {
-				logger.warn("Process did not terminate gracefully, force destroying")
-				process.destroyForcibly()
-				process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
-			}
-			throw IllegalStateException("Unable to sync $url into $repo: timeout $timeout")
-		}
+                try {
+                        if (!process.waitFor(timeout)) {
+                                logger.warn("Git process timed out for $url, terminating process")
+                                process.destroy()
+                                if (process.isAlive) {
+                                        logger.warn("Process did not terminate gracefully, force destroying")
+                                        process.destroyForcibly()
+                                        process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+                                }
+                                throw IllegalStateException("Unable to sync $url into $repo: timeout $timeout")
+                        }
 
-		val exitCode = process.exitValue()
-		if (exitCode == 0) {
-			logger.debug { "Successfully synced $url" }
-		} else {
-			throw IllegalStateException("Unable to sync $url into $repo: exit $exitCode")
-		}
-	}
+                        val exitCode = process.exitValue()
+                        if (exitCode == 0) {
+                                logger.debug { "Successfully synced $url" }
+                        } else {
+                                throw IllegalStateException("Unable to sync $url into $repo: exit $exitCode")
+                        }
+                } catch (t: Throwable) {
+                        if (!repoExistsBeforeCommand) {
+                                cleanupIncompleteRepository(repo)
+                        }
+                        throw t
+                }
+        }
+
+        private fun cleanupIncompleteRepository(repo: Path) {
+                if (repo.notExists()) {
+                        return
+                }
+
+                runCatching {
+                        Files.walk(repo)
+                                .use { stream ->
+                                        stream.sorted(Comparator.reverseOrder()).forEach { path ->
+                                                Files.deleteIfExists(path)
+                                        }
+                                }
+                        logger.debug { "Removed incomplete repository at ${repo.absolutePathString()}" }
+                }.onFailure { error ->
+                        logger.warn("Failed to clean up incomplete repository at ${repo.absolutePathString()}: ${error.message}")
+                        logger.debug { "Cleanup failure details: ${error.stackTraceToString()}" }
+                }
+        }
+
+        private inline fun TelegramNotificationService?.safeNotify(
+                actionDescription: String,
+                block: TelegramNotificationService.() -> Unit,
+        ) {
+                if (this == null) {
+                        return
+                }
+
+                runCatching { block() }
+                        .onFailure { error ->
+                                val message = error.message ?: "unknown error"
+                                logger.warn("Failed to send Telegram $actionDescription notification: $message")
+                                logger.debug { "Telegram notification failure ($actionDescription): ${error.stackTraceToString()}" }
+                        }
+        }
 }
