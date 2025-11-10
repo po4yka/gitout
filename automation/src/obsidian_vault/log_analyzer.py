@@ -102,6 +102,19 @@ def analyse_lines(lines: Sequence[str]) -> IssueSummary:
 
     summary = IssueSummary()
 
+    def _extract_last_int_from(line: str) -> int | None:
+        """Return the last integer-like token contained in ``line``."""
+
+        for token in reversed(line.split()):
+            token = token.strip("│")
+            if not token:
+                continue
+            try:
+                return int(token)
+            except ValueError:
+                continue
+        return None
+
     for line in lines:
         if match := _MISSING_BACKTICKS_RE.search(line):
             summary.missing_backticks.add(match.group(1))
@@ -118,17 +131,11 @@ def analyse_lines(lines: Sequence[str]) -> IssueSummary:
         if _FUTURE_DATE_RE.search(line):
             summary.future_dated_metadata_notes += 1
         if "Notes Processed" in line:
-            parts = line.split()
-            try:
-                summary.notes_processed = int(parts[-1])
-            except (ValueError, IndexError):
-                pass
+            if (value := _extract_last_int_from(line)) is not None:
+                summary.notes_processed = value
         if "Errors" in line and "Metric" not in line:
-            parts = line.split()
-            try:
-                summary.notes_with_errors = int(parts[-1])
-            except (ValueError, IndexError):
-                pass
+            if (value := _extract_last_int_from(line)) is not None:
+                summary.notes_with_errors = value
 
     return summary
 

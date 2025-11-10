@@ -27,6 +27,10 @@ class LogAnalyzerTests(unittest.TestCase):
     def test_qa_verification_none_errors_are_tracked(self):
         self.assertGreaterEqual(self.summary.qa_verification_none_errors, 1)
 
+    def test_summary_captures_processed_and_error_counts(self):
+        self.assertEqual(self.summary.notes_processed, 339)
+        self.assertEqual(self.summary.notes_with_errors, 194)
+
     def test_report_contains_recommendations(self):
         report = render_report(self.summary)
         self.assertIn("Recommended follow-up actions", report)
