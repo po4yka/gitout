@@ -2,6 +2,7 @@ import unittest
 from pathlib import Path
 
 from automation.src.obsidian_vault.log_analyzer import (
+    IssueSummary,
     analyse_log_file,
     analyse_log_text,
     render_report,
@@ -45,6 +46,11 @@ class LogAnalyzerTests(unittest.TestCase):
             self.summary.unacceptable_control_codes,
             summary_from_text.unacceptable_control_codes,
         )
+
+    def test_recommendations_skip_systemic_issue_when_zero_processed(self):
+        summary = IssueSummary(notes_processed=0, notes_with_errors=5)
+        recommendations = summary.recommendations()
+        self.assertNotIn("Investigate systemic issues", " ".join(recommendations))
 
 
 if __name__ == "__main__":

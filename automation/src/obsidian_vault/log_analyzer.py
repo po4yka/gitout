@@ -84,14 +84,17 @@ class IssueSummary:
                 "Guard QA verification against None results before membership tests "
                 "so automation no longer crashes on 'NoneType' iterable checks."
             )
+        processed = self.notes_processed
+        errors = self.notes_with_errors
         if (
-            self.notes_processed is not None
-            and self.notes_with_errors is not None
-            and self.notes_with_errors > 0
+            processed is not None
+            and processed > 0
+            and errors is not None
+            and errors > 0
         ):
-            rate = self.notes_with_errors / self.notes_processed
+            rate = errors / processed
             advice.append(
-                f"Investigate systemic issues: {self.notes_with_errors} of {self.notes_processed} "
+                f"Investigate systemic issues: {errors} of {processed} "
                 f"notes ({rate:.1%}) still end in errors despite modifications."
             )
         return advice
