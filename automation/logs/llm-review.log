@@ -1,0 +1,157 @@
+WARNING  | Automated review failed for InterviewQuestions/70-Kotlin/q-cold-vs-hot-flows--kotlin--medium.md:
+The automated workflow converged on a technically sound and bilingual-consistent note, but stalled on four low-severity warnings that require explicit human judgment or stable formatting. Most substantive issues (Flow semantics, examples, parity, and structural correctness) were successfully resolved. The remaining blockers are a metadata warning about future-dated timestamps and missing backticks around `Flow`, `StateFlow`, and `SharedFlow` mentions, which triggered oscillation in the auto-fix loop. A brief manual pass to confirm or adjust the timestamps and to wrap those specific type names in backticks should bring the note to a fully passing state.
+WARNING  | QA failure summary for InterviewQuestions/70-Kotlin/q-cold-vs-hot-flows--kotlin--medium.md:
+Failure type: persistent_issues
+Unresolved issues: 4
+Recommended actions: 5
+Summary: The automated workflow converged on a technically sound and bilingual-consistent note, but stalled on four low-severity warnings that require explicit human judgment or stable formatting. Most substantive issues (Flow semantics, examples, parity, and structural correctness) were successfully resolved. The remaining blockers are a metadata warning about future-dated timestamps and missing backticks around `Flow`, `StateFlow`, and `SharedFlow` mentions, which triggered oscillation in the auto-fix loop. A brief manual pass to confirm or adjust the timestamps and to wrap those specific type names in backticks should bring the note to a fully passing state.
+SUCCESS  | Completed review for q-cold-vs-hot-flows--kotlin--medium.md - changed: True, iterations: 7, final_issues: 4, time: 1165.19s
+ERROR    | Workflow ended with error: Oscillation detected: Oscillation detected: 3 issue(s) from iteration 6 reappeared in iteration 7. This suggests conflicting validators or unstable fixes. Repeating issues: ["WARNING:Type name 'SharedFlow' found without backticks (line ~873). Consider wrapping in backticks: `SharedFlow`", "WARNING:Type name 'StateFlow' found without backticks (line ~873). Consider wrapping in backticks: `StateFlow`", "WARNING:Type name 'Flow' found without backticks (line ~450). Consider wrapping in backticks: `Flow`"]
+WARNING  | Note requires human review: q-cold-vs-hot-flows--kotlin--medium.md
+INFO     | ======================================================================
+  ✗ Error: Oscillation detected: Oscillation detected: 3 issue(s) from iteration 6 reappeared in iteration 7. This suggests conflicting validators or unstable fixes. Repeating issues: ["WARNING:Type name
+'SharedFlow' found without backticks (line ~873). Consider wrapping in backticks: `SharedFlow`", "WARNING:Type name 'StateFlow' found without backticks (line ~873). Consider wrapping in backticks: `StateFlow`",
+"WARNING:Type name 'Flow' found without backticks (line ~450). Consider wrapping in backticks: `Flow`"]
+  Backup: q-cold-vs-hot-flows--kotlin--medium.md.backup
+  Saved changes to q-cold-vs-hot-flows--kotlin--medium.md
+
+INFO     | Applied fixes: Left created/updated as-is because future-looking dates are allowed per instructions and were already adjusted in a prior iteration., Synced EN 'Limitations' section with RU by adding explicit bullet-point explanations: first-statement requirement, must not lie, not compiler-verified; clarified danger of lying contracts in EN., Clarified in EN that contracts are not verified by the compiler and lying contracts are dangerous, matching RU semantics around 'alwaysFalse' example., Added missing RU follow-up section '## Follow-ups (RU)' (titled in Russian as required) mirroring EN Follow-ups content., Split and localized follow-up, references, and related-questions sections into paired RU/EN sections, ensuring RU sections come before EN and content parity is preserved....
+INFO     | Applied fixes: Left created/updated as-is because future-looking dates are allowed per instructions and were already adjusted in a prior iteration., Synced EN 'Limitations' section with RU by adding explicit bullet-point explanations: first-statement requirement, must not lie, not compiler-verified; clarified danger of lying contracts in EN., Clarified in EN that contracts are not verified by the compiler and lying contracts are dangerous, matching RU semantics around 'alwaysFalse' example., Added missing RU follow-up section '## Follow-ups (RU)' (titled in Russian as required) mirroring EN Follow-ups content., Split and localized follow-up, references, and related-questions sections into paired RU/EN sections, ensuring RU sections come before EN and content parity is preserved., Ensured minimal, targeted edits without altering previously fixed frontmatter fields or overall structure.
+INFO     | Running validators (iteration 3)
+INFO     | Smart selection: Running 3 validator(s): ['metadata', 'parity', 'structural']
+INFO     | Running %d validator helper(s) for %s using %s execution
+WARNING  | Metadata sanity check found 0 issue(s)
+WARNING  | Parity check found 3 issue(s) and 1 missing section(s)
+INFO     | Metadata sanity check found 0 issue(s) and 2 warning(s)
+INFO     | Parity check found 4 issue(s)
+INFO     | Found 6 total issues (2 metadata + 0 structural + 4 parity)
+INFO     | [Iteration 3/10] Issues: 6 (was 6, Δ+0, +0.0%)
+WARNING  | Convergence stalled: Issue count not decreasing (iteration 3)
+INFO     | Continuing to iteration 4 (Issues exceed standard mode thresholds: ERROR:4>0)
+INFO     | Total issues after parallel validation: 6
+INFO     | Continuing to iteration 4 (Issues exceed standard mode thresholds: ERROR:4>0)
+INFO     | [Issue Recording Complete] Decision=continue, TotalIssues=6, Iteration=3/10
+INFO     | Fixing 6 issues
+INFO     | Technical review made changes: I reviewed all code samples, explanations, and best practices for correctness and alignment with Kotlin semantics and the vault's expectations.
+
+Key checks and fixes:
+- Extension basics and examples were validated; clarified that the email check is simplified and emphasized receiver-lambda usage for applyIf.
+- Generic extensions: kept `second()` but added an explicit note that it assumes size >= 2 to make edge-case behavior clear. The sorted check using `zipWithNext` is correct.
+- Fixed the reified example: the custom `filterIsInstance` previously shadowed the stdlib and caused infinite recursion; renamed it to `filterAsType` and implemented it via the standard `filterIsInstance`.
+- Extension properties: confirmed semantics and added a note that they do not introduce backing fields, which is important for advanced understanding.
+- Resolution and scope: clarified the example to correctly demonstrate that a member extension inside a class is preferred when both member and top-level extensions are in scope, and expanded the comment to describe the rule precisely.
+- Operator extensions: added a simple `Version` class so the compareTo example is self-contained; noted that range-based get assumes valid indices.
+- DSL example: adjusted `HtmlBuilder.tag` to call `this.block()` explicitly and clarified in text that it is a minimal, flattened example, avoiding confusion about real HTML tree modeling.
+- Context receivers: made it explicit that they require appropriate Kotlin version and flags, and added minimal interfaces for `Logger`, `Transaction`, and `Order` so the snippet is type-correct and self-contained.
+- RU section was expanded to mirror the EN technical content at a concise summary level while maintaining bilingual alignment and preserving formatting conventions.
+- Flagged a minor taxonomy concern: some YAML subtopics (dsl, extensions, generics) are not listed in the provided taxonomy; left YAML unchanged per instructions but highlighted this in issues_found.
+INFO     | Technical review made changes: I reviewed all code samples, explanations, and best practices for correctness and alignment with Kotlin semantics and the vault's expectations.
+
+Key checks and fixes:
+- Extension basics and examples were validated; clarified that the email check is simplified and emphasized receiver-lambda usage for applyIf.
+- Generic extensions: kept `second()` but added an explicit note that it assumes size >= 2 to make edge-case behavior clear. The sorted check using `zipWithNext` is correct.
+- Fixed the reified example: the custom `filterIsInstance` previously shadowed the stdlib and caused infinite recursion; renamed it to `filterAsType` and implemented it via the standard `filterIsInstance`.
+- Extension properties: confirmed semantics and added a note that they do not introduce backing fields, which is important for advanced understanding.
+- Resolution and scope: clarified the example to correctly demonstrate that a member extension inside a class is preferred when both member and top-level extensions are in scope, and expanded the comment to describe the rule precisely.
+- Operator extensions: added a simple `Version` class so the compareTo example is self-contained; noted that range-based get assumes valid indices.
+- DSL example: adjusted `HtmlBuilder.tag` to call `this.block()` explicitly and clarified in text that it is a minimal, flattened example, avoiding confusion about real HTML tree modeling.
+- Context receivers: made it explicit that they require appropriate Kotlin version and flags, and added minimal interfaces for `Logger`, `Transaction`, and `Order` so the snippet is type-correct and self-contained.
+- RU section was expanded to mirror the EN technical content at a concise summary level while maintaining bilingual alignment and preserving formatting conventions.
+- Flagged a minor taxonomy concern: some YAML subtopics (dsl, extensions, generics) are not listed in the provided taxonomy; left YAML unchanged per instructions but highlighted this in issues_found.
+INFO     | Running validators (iteration 1)
+INFO     | Iteration %d: Running full validator suite
+INFO     | Running %d validator helper(s) for %s using %s execution
+WARNING  | Parity check found 6 issue(s) and 4 missing section(s)
+WARNING  | Metadata sanity check found 4 issue(s)
+INFO     | Metadata sanity check found 4 issue(s) and 5 warning(s)
+INFO     | Parity check found 10 issue(s)
+ERROR    | Error running validators: unacceptable character #x0004: special characters are not allowed
+  in "<unicode string>", position 62
+INFO     | Total issues after parallel validation: 0
+ERROR    | Stopping due to error: Validation failed: unacceptable character #x0004: special characters are not allowed
+  in "<unicode string>", position 62
+INFO     | [Issue Recording Complete] Decision=done, TotalIssues=0, Iteration=0/10
+SUCCESS  | Completed review for q-kotlin-extension-functions-advanced--kotlin--hard.md - changed: True, iterations: 0, final_issues: 0, time: 135.50s
+ERROR    | Workflow ended with error: Validation failed: unacceptable character #x0004: special characters are not allowed
+  in "<unicode string>", position 62
+INFO     | ======================================================================
+  ✗ Error: Validation failed: unacceptable character #x0004: special characters are not allowed
+  in "<unicode string>", position 62
+  Backup: q-kotlin-extension-functions-advanced--kotlin--hard.md.backup
+  Saved changes to q-kotlin-extension-functions-advanced--kotlin--hard.md
+
+INFO     | Applied fixes: Kept created/updated as-is per previous iteration and instructions; did not alter temporal metadata despite warnings., Expanded EN 'Standard Library Contracts' section with brief narrative to match RU explanations while preserving existing code., Expanded EN 'Custom Validation Contracts', 'Contract with callsInPlace', 'Limitations', and 'Best Practices' sections with minimal clarifying text so their narrative depth matches the RU sections without changing technical meaning., Fixed follow-ups section headings for bilingual parity: RU section is now 'Дополнительные вопросы (RU)' content-wise, and EN section is 'Follow-ups (EN)' with aligned, slightly more explicit questions., Clarified EN explanation for the 'alwaysFalse' example to explicitly mention potential NPE and reasoning, mirroring the RU warning....
+INFO     | Applied fixes: Kept created/updated as-is per previous iteration and instructions; did not alter temporal metadata despite warnings., Expanded EN 'Standard Library Contracts' section with brief narrative to match RU explanations while preserving existing code., Expanded EN 'Custom Validation Contracts', 'Contract with callsInPlace', 'Limitations', and 'Best Practices' sections with minimal clarifying text so their narrative depth matches the RU sections without changing technical meaning., Fixed follow-ups section headings for bilingual parity: RU section is now 'Дополнительные вопросы (RU)' content-wise, and EN section is 'Follow-ups (EN)' with aligned, slightly more explicit questions., Clarified EN explanation for the 'alwaysFalse' example to explicitly mention potential NPE and reasoning, mirroring the RU warning.
+INFO     | Running validators (iteration 4)
+INFO     | Smart selection: Running 3 validator(s): ['metadata', 'parity', 'structural']
+INFO     | Running %d validator helper(s) for %s using %s execution
+SUCCESS  | Bilingual parity check passed: EN and RU questions, answers, follow-ups, references, and related questions are all present and semantically aligned; both languages cover the same Kotlin contracts and smart cast concepts with equivalent technical depth and examples.
+WARNING  | Metadata sanity check found 2 issue(s)
+INFO     | Metadata sanity check found 2 issue(s) and 5 warning(s)
+INFO     | Found 7 total issues (7 metadata + 0 structural + 0 parity)
+INFO     | [Iteration 4/10] Issues: 7 (was 6, Δ-1, -16.7%)
+WARNING  | Convergence stalled: Issue count not decreasing (iteration 4)
+INFO     | Continuing to iteration 5 (Issues exceed standard mode thresholds: ERROR:2>0, WARNING:5>3)
+INFO     | Total issues after parallel validation: 7
+INFO     | Continuing to iteration 5 (Issues exceed standard mode thresholds: ERROR:2>0, WARNING:5>3)
+INFO     | [Issue Recording Complete] Decision=continue, TotalIssues=7, Iteration=4/10
+INFO     | Fixing 7 issues
+INFO     | Applied fixes: Left created and updated timestamps unchanged because they are already <= current date 2025-11-10 and ordered correctly, as per previous successful iteration and instructions to avoid oscillation., Verified YAML frontmatter remains valid: required fields present, moc/topic consistent, tags English-only, subtopics within allowed pattern., Confirmed bilingual structure and ordering: RU question/answer sections come before EN counterparts; no reordering needed....
+WARNING  | No fixes could be applied - escalating to human review
+INFO     | Running validators (iteration 5)
+INFO     | Smart selection: Running 3 validator(s): ['metadata', 'parity', 'structural']
+INFO     | Running %d validator helper(s) for %s using %s execution
+SUCCESS  | Bilingual parity check passed: EN and RU sections are semantically aligned with matching structure and equivalent technical content, including examples, contract types, usage patterns, limitations, best practices, follow-ups, references, and related questions.
+INFO     | Metadata sanity check found 0 issue(s) and 1 warning(s)
+INFO     | Found 1 total issues (1 metadata + 0 structural + 0 parity)
+INFO     | [Iteration 5/10] Issues: 1 (was 7, Δ+6, +85.7%)
+WARNING  | Fix agent could not apply changes - escalating to human review (iteration 5/10, 1 unresolved issue(s))
+INFO     | Total issues after parallel validation: 1
+WARNING  | Fix agent could not apply changes - escalating to human review (iteration 5/10, 1 unresolved issue(s))
+INFO     | [Issue Recording Complete] Decision=summarize_failures, TotalIssues=1, Iteration=5/10
+WARNING  | Summarizing QA failures for InterviewQuestions/70-Kotlin/q-kotlin-contracts-smart-casts--kotlin--hard.md (iterations: 5/10)
+INFO     | QA failure summary complete - Failure type: persistent_issues, Unresolved: 1, Recommendations: 3
+WARNING  | Automated review failed for InterviewQuestions/70-Kotlin/q-kotlin-contracts-smart-casts--kotlin--hard.md:
+The automated workflow successfully fixed all technical, structural, and bilingual-parity issues in this Kotlin contracts note. The only remaining problem is a metadata warning: the frontmatter still has status set to 'draft'. The fix agent halted because changing publication status requires human judgment about whether the content is ready to be published. Please confirm the intended status and update the field accordingly; once that is done, the note should pass validation and be ready for QA or publication.
+WARNING  | QA failure summary for InterviewQuestions/70-Kotlin/q-kotlin-contracts-smart-casts--kotlin--hard.md:
+Failure type: persistent_issues
+Unresolved issues: 1
+Recommended actions: 3
+Summary: The automated workflow successfully fixed all technical, structural, and bilingual-parity issues in this Kotlin contracts note. The only remaining problem is a metadata warning: the frontmatter still has status set to 'draft'. The fix agent halted because changing publication status requires human judgment about whether the content is ready to be published. Please confirm the intended status and update the field accordingly; once that is done, the note should pass validation and be ready for QA or publication.
+SUCCESS  | Completed review for q-kotlin-contracts-smart-casts--kotlin--hard.md - changed: True, iterations: 5, final_issues: 1, time: 598.65s
+WARNING  | Note requires human review: q-kotlin-contracts-smart-casts--kotlin--hard.md
+INFO     | ======================================================================
+  ✓ Modified (5 iteration(s), 1 final issue(s))
+  Backup: q-kotlin-contracts-smart-casts--kotlin--hard.md.backup
+  Saved changes to q-kotlin-contracts-smart-casts--kotlin--hard.md
+
+ERROR    | Error in QA verification: argument of type 'NoneType' is not iterable
+SUCCESS  | Completed review for q-flatmap-variants-flow--kotlin--medium.md - changed: True, iterations: 2, final_issues: 2, time: 243.41s
+ERROR    | Workflow ended with error: QA verification failed: argument of type 'NoneType' is not iterable
+
+  ✗ Error: Recursion limit of 25 reached without hitting a stop condition. You can increase the limit by setting the `recursion_limit` config key.
+For troubleshooting, visit: https://docs.langchain.com/oss/python/langgraph/errors/GRAPH_RECURSION_LIMIT
+  ✗ Error: Recursion limit of 25 reached without hitting a stop condition. You can increase the limit by setting the `recursion_limit` config key.
+For troubleshooting, visit: https://docs.langchain.com/oss/python/langgraph/errors/GRAPH_RECURSION_LIMIT
+  ✗ Error: Recursion limit of 25 reached without hitting a stop condition. You can increase the limit by setting the `recursion_limit` config key.
+For troubleshooting, visit: https://docs.langchain.com/oss/python/langgraph/errors/GRAPH_RECURSION_LIMIT
+  ✗ Error: Recursion limit of 25 reached without hitting a stop condition. You can increase the limit by setting the `recursion_limit` config key.
+For troubleshooting, visit: https://docs.langchain.com/oss/python/langgraph/errors/GRAPH_RECURSION_LIMIT
+  ✗ Error: Recursion limit of 25 reached without hitting a stop condition. You can increase the limit by setting the `recursion_limit` config key.
+For troubleshooting, visit: https://docs.langchain.com/oss/python/langgraph/errors/GRAPH_RECURSION_LIMIT
+    LLM Review Summary
+┏━━━━━━━━━━━━━━━━━┳━━━━━━━┓
+┃ Metric          ┃ Count ┃
+┡━━━━━━━━━━━━━━━━━╇━━━━━━━┩
+│ Notes Processed │   339 │
+│ Modified        │   339 │
+│ Errors          │   194 │
+│ Unchanged       │  -194 │
+└─────────────────┴───────┘
+SUCCESS  | LLM review complete: 339 notes, 339 modified, 194 errors
+✗ Error:
+ERROR    | LLM review failed:
+Traceback (most recent call last):
+  File "/Users/po4yka/GitRep/interview_questions/automation/src/obsidian_vault/cli_app.py", line 1153, in llm_review
+    raise typer.Exit(code=1)
+click.exceptions.Exit
