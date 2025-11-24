@@ -3,7 +3,7 @@ apollo = "4.3.3"
 kotlin = "2.2.10"
 kotlinx-serialization = "1.9.0"
 kotlinx-coroutines = "1.10.2"
-okhttp = "5.1.0"
+okhttp = "5.3.2"
 telegram-bot = "6.2.0"
 
 [libraries]
