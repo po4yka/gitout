@@ -188,6 +188,9 @@ internal class Config(
 		git.repos.forEach { (name, url) ->
 			if (name.isBlank()) {
 				errors.add(ValidationError.EmptyGitRepoName(url))
+			} else if (!isValidRepositoryName(name)) {
+				// Check for path traversal and invalid characters
+				errors.add(ValidationError.InvalidRepositoryName(name))
 			}
 			if (url.isBlank()) {
 				errors.add(ValidationError.EmptyGitRepoUrl(name))
@@ -259,6 +262,16 @@ internal class Config(
 		// Basic validation for git URLs
 		return url.matches(Regex("^(https?://|git@|git://|ssh://|file://).*")) ||
 			url.matches(Regex("^[\\w.-]+@[\\w.-]+:.*"))
+	}
+
+	private fun isValidRepositoryName(name: String): Boolean {
+		// Prevent path traversal attacks and ensure safe filesystem names
+		// Allow only alphanumeric characters, dots, underscores, hyphens, and forward slashes for org/repo format
+		// Disallow: "..", leading/trailing slashes, consecutive slashes, and other special characters
+		if (name.contains("..")) return false
+		if (name.startsWith("/") || name.endsWith("/")) return false
+		if (name.contains("//")) return false
+		return name.matches(Regex("^[a-zA-Z0-9._/-]+$"))
 	}
 
 	@Poko
@@ -391,6 +404,11 @@ internal sealed class ValidationError {
 
 	data class InvalidGitUrl(val name: String, val url: String) : ValidationError() {
 		override val message = "Invalid git URL for repository '$name': $url"
+	}
+
+	data class InvalidRepositoryName(val name: String) : ValidationError() {
+		override val message = "Invalid repository name '$name': contains path traversal characters or invalid characters. " +
+			"Names must match [a-zA-Z0-9._-]+"
 	}
 
 	data class CertFileNotFound(val path: String) : ValidationError() {

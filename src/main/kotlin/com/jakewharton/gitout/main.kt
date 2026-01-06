@@ -99,6 +99,10 @@ private class GitOutCommand(
 					logger.trace { it }
 				}.also {
 					it.level = BODY
+					// Redact sensitive headers to prevent token exposure in debug logs
+					it.redactHeader("Authorization")
+					it.redactHeader("Cookie")
+					it.redactHeader("Set-Cookie")
 				}
 			)
 			.build()

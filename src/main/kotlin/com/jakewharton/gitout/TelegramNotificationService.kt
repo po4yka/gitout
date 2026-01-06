@@ -9,7 +9,6 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import java.time.Duration
 import java.time.Instant
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.io.path.exists
 import kotlin.io.path.readText
@@ -39,18 +38,26 @@ internal class TelegramNotificationService(
 	private val config: Config.Telegram?,
 	private val logger: Logger,
 ) {
-	// Store the latest sync status for command responses
-	private val lastSyncStatus = AtomicReference<String>("No sync has been performed yet")
-	private val isSyncing = AtomicReference(false)
+	/**
+	 * Thread-safe container for sync statistics.
+	 * All related stats are updated atomically to prevent inconsistent reads.
+	 */
+	internal data class SyncStats(
+		val lastSyncStatus: String = "No sync has been performed yet",
+		val isSyncing: Boolean = false,
+		val lastSyncTime: String? = null,
+		val totalRepositories: Int = 0,
+		val successfulRepositories: Int = 0,
+		val failedRepositories: Int = 0,
+		val lastProgressPercentage: Int = 0,
+	)
+
+	// Single atomic reference for all sync statistics - ensures consistent reads
+	private val syncStats = AtomicReference(SyncStats())
+
+	// Failed repositories tracked separately (less frequently accessed)
 	private val lastFailedRepositories = AtomicReference<Map<String, String>>(emptyMap())
 	private val botStartedAt = Instant.now()
-
-	// Store repository statistics
-        private val lastSyncTime = AtomicReference<String?>(null)
-        private val totalRepositories = AtomicReference(0)
-        private val successfulRepositories = AtomicReference(0)
-        private val failedRepositories = AtomicReference(0)
-        private val lastProgressPercentage = AtomicInteger(0)
 
         private val progressStepPercent = config
                 ?.notifyProgressStepPercent
@@ -134,23 +141,23 @@ internal class TelegramNotificationService(
 
 						command("status") {
 							handleCommand(message.from?.id, "status") {
-								val syncing = isSyncing.get()
-								val status = lastSyncStatus.get()
+								val stats = syncStats.get()
 
-								if (syncing) {
-									"<b>Sync in Progress</b>\n\n$status"
+								if (stats.isSyncing) {
+									"<b>Sync in Progress</b>\n\n${stats.lastSyncStatus}"
 								} else {
-									"<b>Last Sync Status</b>\n\n$status"
+									"<b>Last Sync Status</b>\n\n${stats.lastSyncStatus}"
 								}
 							}
 						}
 
 						command("stats") {
 							handleCommand(message.from?.id, "stats") {
-								val lastSync = lastSyncTime.get()
-								val total = totalRepositories.get()
-								val successful = successfulRepositories.get()
-								val failed = failedRepositories.get()
+								val stats = syncStats.get()
+								val lastSync = stats.lastSyncTime
+								val total = stats.totalRepositories
+								val successful = stats.successfulRepositories
+								val failed = stats.failedRepositories
 
 								if (lastSync == null) {
 									"<b>Repository Statistics</b>\n\nNo synchronization has been performed yet."
@@ -318,10 +325,18 @@ internal class TelegramNotificationService(
 	 * @param workers Number of parallel workers being used
 	 */
         internal fun notifySyncStart(repositoryCount: Int, workers: Int) {
-                isSyncing.set(true)
-                totalRepositories.set(repositoryCount)
-                lastSyncStatus.set("Syncing $repositoryCount repositories with $workers workers\nStarted: ${getCurrentTimestamp()}")
-                lastProgressPercentage.set(0)
+                // Update all stats atomically to prevent inconsistent reads
+                syncStats.updateAndGet { current ->
+                        current.copy(
+                                isSyncing = true,
+                                totalRepositories = repositoryCount,
+                                lastSyncStatus = "Syncing $repositoryCount repositories with $workers workers\nStarted: ${getCurrentTimestamp()}",
+                                lastProgressPercentage = 0,
+                                // Reset counters for new sync
+                                successfulRepositories = 0,
+                                failedRepositories = 0,
+                        )
+                }
 
                 if (!isEnabled() || config?.notifyStart != true) return
 
@@ -352,7 +367,7 @@ internal class TelegramNotificationService(
                 }
 
                 val percentage = (completed.toDouble() / total * 100).toInt().coerceIn(0, 100)
-                val lastNotified = lastProgressPercentage.get()
+                val lastNotified = syncStats.get().lastProgressPercentage
                 val shouldSend = when {
                         completed >= total -> lastNotified < 100
                         percentage >= lastNotified + progressStepPercent -> true
@@ -362,7 +377,7 @@ internal class TelegramNotificationService(
 
                 if (!shouldSend) return
 
-                lastProgressPercentage.set(if (completed >= total) 100 else percentage)
+                syncStats.updateAndGet { it.copy(lastProgressPercentage = if (completed >= total) 100 else percentage) }
 
                 val message = buildString {
                         appendLine("<b>Sync Progress</b>")
@@ -384,23 +399,24 @@ internal class TelegramNotificationService(
 	 * @param durationSeconds Total duration in seconds
 	 */
 	internal fun notifySyncCompletion(successful: Int, failed: Int, durationSeconds: Long) {
-		isSyncing.set(false)
-
 		val total = successful + failed
 		val successRate = if (total > 0) (successful.toDouble() / total * 100).toInt() else 0
+		val timestamp = getCurrentTimestamp()
 
-		// Update statistics
-		successfulRepositories.set(successful)
-		failedRepositories.set(failed)
-		lastSyncTime.set(getCurrentTimestamp())
-
-		lastSyncStatus.set(
-			"Successful: $successful\n" +
-				(if (failed > 0) "Failed: $failed\n" else "") +
-				"Success Rate: $successRate%\n" +
-				"Duration: ${formatDuration(durationSeconds)}\n" +
-				"Finished: ${getCurrentTimestamp()}"
-		)
+		// Update all statistics atomically to prevent inconsistent reads
+		syncStats.updateAndGet { current ->
+			current.copy(
+				isSyncing = false,
+				successfulRepositories = successful,
+				failedRepositories = failed,
+				lastSyncTime = timestamp,
+				lastSyncStatus = "Successful: $successful\n" +
+					(if (failed > 0) "Failed: $failed\n" else "") +
+					"Success Rate: $successRate%\n" +
+					"Duration: ${formatDuration(durationSeconds)}\n" +
+					"Finished: $timestamp",
+			)
+		}
 
 		if (!isEnabled() || config?.notifyCompletion != true) return
 

@@ -200,6 +200,8 @@ internal class Engine(
 				null
 			} else {
 				Files.createTempFile("gitout-credentials-", "").apply {
+					// Ensure cleanup on JVM exit as a backup
+					toFile().deleteOnExit()
 					writeText(
 						HttpUrl.Builder()
 							.scheme("https")
@@ -280,15 +282,18 @@ internal class Engine(
 		}
 
 		// Execute all sync tasks in parallel with worker pool
-		executeSyncTasksInParallel(syncTasks, workerPoolSize, dryRun)
-
-		// Clean up credentials file immediately after sync completes
-		githubCredentials?.let { credPath ->
-			try {
-				Files.deleteIfExists(credPath)
-				logger.debug { "Cleaned up credentials file" }
-			} catch (e: Exception) {
-				logger.warn("Failed to delete credentials file: ${e.message}")
+		// Use try-finally to guarantee credentials cleanup even on exceptions
+		try {
+			executeSyncTasksInParallel(syncTasks, workerPoolSize, dryRun)
+		} finally {
+			// Clean up credentials file immediately after sync completes (or fails)
+			githubCredentials?.let { credPath ->
+				try {
+					Files.deleteIfExists(credPath)
+					logger.debug { "Cleaned up credentials file" }
+				} catch (e: Exception) {
+					logger.warn("Failed to delete credentials file: ${e.message}")
+				}
 			}
 		}
 
@@ -571,7 +576,7 @@ internal class Engine(
 
 			val exitCode = process.exitValue()
 			if (exitCode == 0) {
-				process.inputStream.bufferedReader().readText().trim()
+				process.inputStream.bufferedReader().use { it.readText().trim() }
 			} else {
 				// Repository might be empty or have no commits
 				logger.debug { "Could not get HEAD ref for ${repo.name} (exit code: $exitCode)" }
@@ -603,7 +608,7 @@ internal class Engine(
 
 			val exitCode = process.exitValue()
 			if (exitCode == 0) {
-				process.inputStream.bufferedReader().readText().trim().toIntOrNull() ?: 0
+				process.inputStream.bufferedReader().use { it.readText().trim().toIntOrNull() ?: 0 }
 			} else {
 				logger.debug { "Could not count commits for ${repo.name} (exit code: $exitCode)" }
 				0
@@ -634,7 +639,7 @@ internal class Engine(
 
 			val exitCode = process.exitValue()
 			if (exitCode == 0) {
-				process.inputStream.bufferedReader().readText().trim().toIntOrNull() ?: 0
+				process.inputStream.bufferedReader().use { it.readText().trim().toIntOrNull() ?: 0 }
 			} else {
 				logger.debug { "Could not count total commits for ${repo.name} (exit code: $exitCode)" }
 				0

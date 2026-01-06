@@ -25,7 +25,7 @@ VOLUME /data
 
 RUN apk add --no-cache \
       git \
-      openjdk8-jre-base \
+      openjdk17-jre-headless \
       tini \
       ca-certificates \
       bash \

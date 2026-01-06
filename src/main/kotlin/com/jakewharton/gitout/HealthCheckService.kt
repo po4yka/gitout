@@ -30,7 +30,13 @@ internal class HealthCheck(
 			.build()
 
 		logger.debug { "Healthcheck start $startUrl" }
-		client.newCall(Request(url = startUrl, method = "POST", body = RequestBody.EMPTY)).execute()
+		try {
+			client.newCall(Request(url = startUrl, method = "POST", body = RequestBody.EMPTY)).execute().use { response ->
+				response.body?.close()
+			}
+		} catch (e: Exception) {
+			logger.warn("Healthcheck start request failed: ${e.message}")
+		}
 
 		return Started(url, client, logger)
 	}
@@ -42,7 +48,13 @@ internal class HealthCheck(
 	) {
 		fun complete() {
 			logger.debug { "Healthcheck complete $url" }
-			client.newCall(Request(url = url, method = "POST", body = RequestBody.EMPTY)).execute()
+			try {
+				client.newCall(Request(url = url, method = "POST", body = RequestBody.EMPTY)).execute().use { response ->
+					response.body?.close()
+				}
+			} catch (e: Exception) {
+				logger.warn("Healthcheck complete request failed: ${e.message}")
+			}
 		}
 	}
 }

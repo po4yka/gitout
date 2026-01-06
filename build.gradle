@@ -42,6 +42,7 @@ dependencies {
 	testImplementation libs.junit
 	testImplementation libs.assertk
 	testImplementation libs.okhttp.mockwebserver
+	testImplementation libs.kotlinx.coroutines.test
 }
 
 apollo {
