@@ -3,6 +3,9 @@
 ## [Unreleased]
 [Unreleased]: https://github.com/po4yka/gitout/compare/0.3.0...HEAD
 
+New:
+- Linux Arm variant of Docker container.
+
 ## [0.4.0-fork-SNAPSHOT] - In Development
 ### Complete Kotlin Migration & Major Enhancements
 
