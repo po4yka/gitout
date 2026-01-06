@@ -12,3 +12,8 @@ test-config*.toml
 
 # Temporary documentation
 *_ENHANCEMENT.md
+
+# Deployment configuration (environment-specific)
+config.toml
+docker-compose.yml
+secrets/
