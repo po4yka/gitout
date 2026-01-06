@@ -157,6 +157,24 @@ internal class Engine(
 				""".trimMargin()
 			}
 
+			// Track repository state changes
+			val stateFile = githubDestination.resolve(".gitout-state.json")
+			val stateTracker = RepositoryStateTracker(stateFile, logger)
+			val repositoryChanges = stateTracker.detectChanges(githubRepositories.metadata)
+
+			// Notify about repository changes (archived, deleted, visibility changes)
+			if (repositoryChanges.hasChanges()) {
+				logger.info { "Detected ${repositoryChanges.totalChanges()} repository state change(s)" }
+				telegramService.safeNotify("repository changes") {
+					notifyRepositoryChanges(repositoryChanges)
+				}
+			}
+
+			// Save the current state (will be updated after sync completes)
+			if (!dryRun) {
+				stateTracker.saveState(githubRepositories.metadata)
+			}
+
 			val nameAndOwnerToReasons = mutableMapOf<String, MutableSet<String>>()
 
 			for (nameAndOwner in githubRepositories.owned) {
@@ -419,13 +437,14 @@ internal class Engine(
 	private fun setupSsl(ssl: Config.Ssl) {
 		val envVars = mutableMapOf<String, String>()
 
-		// Handle SSL certificate configuration
+		// Handle SSL certificate configuration for git subprocesses
+		// Note: We do NOT set javax.net.ssl.trustStore here because Java expects JKS/PKCS12 format,
+		// not PEM files. Java uses its own default cacerts which works fine.
 		val certFile = ssl.certFile ?: findDefaultCertFile()
 		if (certFile != null) {
-			logger.debug { "Using SSL certificate file: $certFile" }
-			System.setProperty("javax.net.ssl.trustStore", certFile)
+			logger.debug { "Using SSL certificate file for git: $certFile" }
 
-			// Set environment variables for git
+			// Set environment variables for git subprocesses only
 			val certPath = Paths.get(certFile)
 			if (certPath.exists()) {
 				envVars["SSL_CERT_FILE"] = certFile

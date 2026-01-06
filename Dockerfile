@@ -34,17 +34,11 @@ RUN apk add --no-cache \
  && mkdir /var/cache/apk \
  && update-ca-certificates
 
-# Set SSL certificate file location
-ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
-
 # Environment variables for configuration
-ENV GITOUT_CRON="" \
-    GITOUT_TIMEOUT="10m" \
-    GITOUT_DRY_RUN="" \
-    GITOUT_HC_ID="" \
-    GITOUT_HC_HOST="https://hc-ping.com" \
-    PUID="" \
-    PGID=""
+# Note: SSL_CERT_FILE is NOT set here - Java uses its own cacerts, setting it breaks Java's TrustManager
+# Note: GITOUT_DRY_RUN is intentionally not set (Clikt flag requires true/false or unset)
+ENV GITOUT_TIMEOUT="10m" \
+    GITOUT_HC_HOST="https://hc-ping.com"
 
 WORKDIR /app
 COPY --from=build /app/build/install/gitout ./

@@ -4,6 +4,7 @@ import com.github.kotlintelegrambot.Bot
 import com.github.kotlintelegrambot.bot
 import com.github.kotlintelegrambot.dispatch
 import com.github.kotlintelegrambot.dispatcher.command
+import com.github.kotlintelegrambot.entities.BotCommand
 import com.github.kotlintelegrambot.entities.ChatId
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -227,6 +228,16 @@ internal class TelegramNotificationService(
 				}
 
 				if (commandsEnabled) {
+					// Register bot commands menu with Telegram
+					val commands = listOf(
+						BotCommand("status", "Get current sync status"),
+						BotCommand("stats", "Get repository statistics"),
+						BotCommand("info", "Get bot information"),
+						BotCommand("fails", "Show recent failures"),
+						BotCommand("help", "Show help message"),
+						BotCommand("ping", "Check bot responsiveness"),
+					)
+					createdBot.setMyCommands(commands)
 					logger.lifecycle { "Starting Telegram bot polling for commands" }
 					createdBot.startPolling()
 				}
@@ -859,5 +870,120 @@ internal class TelegramNotificationService(
                         else -> "${secs}s"
                 }
         }
+
+	/**
+	 * Sends notification about repository state changes (archived, deleted, visibility changed).
+	 */
+	internal fun notifyRepositoryChanges(changes: RepositoryChanges) {
+		if (!isEnabled()) return
+
+		// Notify about archived repositories
+		if (changes.archived.isNotEmpty()) {
+			val message = buildString {
+				appendLine("<b>📦 Repositories Archived</b>")
+				appendLine()
+				appendLine("${changes.archived.size} repository(ies) have been archived:")
+				appendLine()
+				changes.archived.take(10).forEach { change ->
+					appendLine("• <code>${change.name}</code>")
+				}
+				if (changes.archived.size > 10) {
+					appendLine("... and ${changes.archived.size - 10} more")
+				}
+				appendLine()
+				appendLine("Timestamp: ${getCurrentTimestamp()}")
+			}
+			sendMessage(message, "repos archived")
+		}
+
+		// Notify about unarchived repositories
+		if (changes.unarchived.isNotEmpty()) {
+			val message = buildString {
+				appendLine("<b>📂 Repositories Unarchived</b>")
+				appendLine()
+				appendLine("${changes.unarchived.size} repository(ies) have been unarchived:")
+				appendLine()
+				changes.unarchived.take(10).forEach { change ->
+					appendLine("• <code>${change.name}</code>")
+				}
+				if (changes.unarchived.size > 10) {
+					appendLine("... and ${changes.unarchived.size - 10} more")
+				}
+				appendLine()
+				appendLine("Timestamp: ${getCurrentTimestamp()}")
+			}
+			sendMessage(message, "repos unarchived")
+		}
+
+		// Notify about deleted/inaccessible repositories
+		if (changes.deleted.isNotEmpty()) {
+			val message = buildString {
+				appendLine("<b>🗑️ Repositories Deleted/Inaccessible</b>")
+				appendLine()
+				appendLine("${changes.deleted.size} repository(ies) are no longer accessible:")
+				appendLine()
+				changes.deleted.take(10).forEach { change ->
+					appendLine("• <code>${change.name}</code> (was ${change.metadata.repoType})")
+				}
+				if (changes.deleted.size > 10) {
+					appendLine("... and ${changes.deleted.size - 10} more")
+				}
+				appendLine()
+				appendLine("<i>These repositories may have been deleted, made private, or you lost access.</i>")
+				appendLine()
+				appendLine("Timestamp: ${getCurrentTimestamp()}")
+			}
+			sendMessage(message, "repos deleted")
+		}
+
+		// Notify about visibility changes
+		if (changes.visibilityChanged.isNotEmpty()) {
+			val message = buildString {
+				appendLine("<b>👁️ Repository Visibility Changed</b>")
+				appendLine()
+				appendLine("${changes.visibilityChanged.size} repository(ies) changed visibility:")
+				appendLine()
+				changes.visibilityChanged.take(10).forEach { change ->
+					appendLine("• <code>${change.name}</code>")
+					appendLine("  ${change.previousValue} → ${change.currentValue}")
+				}
+				if (changes.visibilityChanged.size > 10) {
+					appendLine("... and ${changes.visibilityChanged.size - 10} more")
+				}
+				appendLine()
+				appendLine("Timestamp: ${getCurrentTimestamp()}")
+			}
+			sendMessage(message, "visibility changed")
+		}
+	}
+
+	/**
+	 * Sends a summary notification about all repository changes.
+	 */
+	internal fun notifyRepositoryChangesSummary(changes: RepositoryChanges) {
+		if (!isEnabled() || !changes.hasChanges()) return
+
+		val message = buildString {
+			appendLine("<b>📊 Repository Changes Detected</b>")
+			appendLine()
+			if (changes.archived.isNotEmpty()) {
+				appendLine("📦 Archived: ${changes.archived.size}")
+			}
+			if (changes.unarchived.isNotEmpty()) {
+				appendLine("📂 Unarchived: ${changes.unarchived.size}")
+			}
+			if (changes.deleted.isNotEmpty()) {
+				appendLine("🗑️ Deleted/Inaccessible: ${changes.deleted.size}")
+			}
+			if (changes.visibilityChanged.isNotEmpty()) {
+				appendLine("👁️ Visibility Changed: ${changes.visibilityChanged.size}")
+			}
+			appendLine()
+			appendLine("<b>Total Changes:</b> ${changes.totalChanges()}")
+			appendLine()
+			appendLine("Timestamp: ${getCurrentTimestamp()}")
+		}
+		sendMessage(message, "changes summary")
+	}
 
 }

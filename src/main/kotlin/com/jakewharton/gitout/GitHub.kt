@@ -18,6 +18,7 @@ internal class GitHub(
 		val starred: Set<String>,
 		val watching: Set<String>,
 		val gists: Set<String>,
+		val metadata: Map<String, RepositoryMetadata>,
 	)
 
 	suspend fun loadRepositories(): UserRepositories {
@@ -25,6 +26,7 @@ internal class GitHub(
 		val starred = mutableSetOf<String>()
 		val watching = mutableSetOf<String>()
 		val gists = mutableSetOf<String>()
+		val metadata = mutableMapOf<String, RepositoryMetadata>()
 
 		ApolloClient.Builder()
 			.serverUrl("https://api.github.com/graphql")
@@ -66,6 +68,16 @@ internal class GitHub(
 						val node = ownedEdge?.node
 						if (node != null) {
 							owned += node.nameWithOwner
+							metadata[node.nameWithOwner] = RepositoryMetadata(
+								name = node.nameWithOwner,
+								isArchived = node.isArchived,
+								isPrivate = node.isPrivate,
+								isFork = node.isFork,
+								visibility = node.visibility.name,
+								description = node.description,
+								updatedAt = node.updatedAt.toString(),
+								repoType = "owned",
+							)
 							ownedAfter = Optional.present(ownedEdge.cursor)
 						} else {
 							logger.warn("Skipping owned repository with null node")
@@ -75,6 +87,19 @@ internal class GitHub(
 						val node = starredEdge?.node
 						if (node != null) {
 							starred += node.nameWithOwner
+							// Only add metadata if not already present (owned takes priority)
+							if (node.nameWithOwner !in metadata) {
+								metadata[node.nameWithOwner] = RepositoryMetadata(
+									name = node.nameWithOwner,
+									isArchived = node.isArchived,
+									isPrivate = node.isPrivate,
+									isFork = node.isFork,
+									visibility = node.visibility.name,
+									description = node.description,
+									updatedAt = node.updatedAt.toString(),
+									repoType = "starred",
+								)
+							}
 							starredAfter = Optional.present(starredEdge.cursor)
 						} else {
 							logger.warn("Skipping starred repository with null node")
@@ -84,6 +109,19 @@ internal class GitHub(
 						val node = watchingEdge?.node
 						if (node != null) {
 							watching += node.nameWithOwner
+							// Only add metadata if not already present
+							if (node.nameWithOwner !in metadata) {
+								metadata[node.nameWithOwner] = RepositoryMetadata(
+									name = node.nameWithOwner,
+									isArchived = node.isArchived,
+									isPrivate = node.isPrivate,
+									isFork = node.isFork,
+									visibility = node.visibility.name,
+									description = node.description,
+									updatedAt = node.updatedAt.toString(),
+									repoType = "watching",
+								)
+							}
 							watchingAfter = Optional.present(watchingEdge.cursor)
 						} else {
 							logger.warn("Skipping watching repository with null node")
@@ -93,6 +131,16 @@ internal class GitHub(
 						val node = gistEdge?.node
 						if (node != null) {
 							gists += node.name
+							metadata[node.name] = RepositoryMetadata(
+								name = node.name,
+								isArchived = false, // Gists don't have archive status
+								isPrivate = !node.isPublic,
+								isFork = false, // Gists don't have fork status
+								visibility = if (node.isPublic) "PUBLIC" else "PRIVATE",
+								description = node.description,
+								updatedAt = node.updatedAt.toString(),
+								repoType = "gist",
+							)
 							gistsAfter = Optional.present(gistEdge.cursor)
 						} else {
 							logger.warn("Skipping gist with null node")
@@ -106,6 +154,7 @@ internal class GitHub(
 			starred = starred,
 			watching = watching,
 			gists = gists,
+			metadata = metadata,
 		)
 	}
 }

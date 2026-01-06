@@ -11,6 +11,12 @@ query UserRepos(
         cursor
         node {
           nameWithOwner
+          isArchived
+          isPrivate
+          isFork
+          visibility
+          description
+          updatedAt
         }
       }
     }
@@ -19,6 +25,12 @@ query UserRepos(
         cursor
         node {
           nameWithOwner
+          isArchived
+          isPrivate
+          isFork
+          visibility
+          description
+          updatedAt
         }
       }
     }
@@ -27,6 +39,12 @@ query UserRepos(
         cursor
         node {
           nameWithOwner
+          isArchived
+          isPrivate
+          isFork
+          visibility
+          description
+          updatedAt
         }
       }
     }
@@ -35,6 +53,9 @@ query UserRepos(
         cursor
         node {
           name
+          isPublic
+          description
+          updatedAt
         }
       }
     }
