@@ -17,6 +17,7 @@ query UserRepos(
           visibility
           description
           updatedAt
+          diskUsage
         }
       }
     }
@@ -31,6 +32,7 @@ query UserRepos(
           visibility
           description
           updatedAt
+          diskUsage
         }
       }
     }
@@ -45,6 +47,7 @@ query UserRepos(
           visibility
           description
           updatedAt
+          diskUsage
         }
       }
     }

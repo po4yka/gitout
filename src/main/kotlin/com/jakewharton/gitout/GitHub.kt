@@ -77,6 +77,7 @@ internal class GitHub(
 								description = node.description,
 								updatedAt = node.updatedAt.toString(),
 								repoType = "owned",
+								diskUsageKb = node.diskUsage?.toLong(),
 							)
 							ownedAfter = Optional.present(ownedEdge.cursor)
 						} else {
@@ -98,6 +99,7 @@ internal class GitHub(
 									description = node.description,
 									updatedAt = node.updatedAt.toString(),
 									repoType = "starred",
+									diskUsageKb = node.diskUsage?.toLong(),
 								)
 							}
 							starredAfter = Optional.present(starredEdge.cursor)
@@ -120,6 +122,7 @@ internal class GitHub(
 									description = node.description,
 									updatedAt = node.updatedAt.toString(),
 									repoType = "watching",
+									diskUsageKb = node.diskUsage?.toLong(),
 								)
 							}
 							watchingAfter = Optional.present(watchingEdge.cursor)

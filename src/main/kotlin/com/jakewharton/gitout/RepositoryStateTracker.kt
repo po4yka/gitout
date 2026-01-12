@@ -156,6 +156,7 @@ internal class RepositoryMetadata(
 	val description: String?,
 	val updatedAt: String?,
 	val repoType: String, // "owned", "starred", "watching", "gist"
+	val diskUsageKb: Long? = null, // Repository size in KB (null for gists)
 )
 
 @Poko

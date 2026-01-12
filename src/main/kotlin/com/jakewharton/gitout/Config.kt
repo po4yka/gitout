@@ -25,9 +25,14 @@ internal class Config(
 	val github: GitHub? = null,
 	val git: Git = Git(),
 	val ssl: Ssl = Ssl(),
+	val http: Http = Http(),
 	val parallelism: Parallelism = Parallelism(),
 	val metrics: MetricsConfig = MetricsConfig(),
 	val telegram: Telegram? = null,
+	@kotlinx.serialization.SerialName("large_repos")
+	val largeRepos: LargeRepoConfig = LargeRepoConfig(),
+	@kotlinx.serialization.SerialName("failure_tracking")
+	val failureTracking: FailureTrackingConfig = FailureTrackingConfig(),
 ) {
 	companion object {
 		private val lenientToml = Toml(TomlInputConfig(ignoreUnknownNames = true))
@@ -255,6 +260,42 @@ internal class Config(
                         }
                 }
 
+		// Validate HTTP configuration
+		if (http.version !in listOf("HTTP/1.1", "HTTP/2")) {
+			errors.add(ValidationError.InvalidHttpVersion(http.version))
+		}
+		if (http.postBufferSize < 1024) {
+			errors.add(ValidationError.InvalidPostBufferSize(http.postBufferSize))
+		}
+		if (http.lowSpeedLimit < 0) {
+			errors.add(ValidationError.InvalidLowSpeedLimit(http.lowSpeedLimit))
+		}
+		if (http.lowSpeedTime < 1) {
+			errors.add(ValidationError.InvalidLowSpeedTime(http.lowSpeedTime))
+		}
+
+		// Validate large repo configuration
+		if (largeRepos.sizeThresholdKb < 1024) {
+			errors.add(ValidationError.InvalidLargeRepoThreshold(largeRepos.sizeThresholdKb))
+		}
+		if (largeRepos.timeoutMultiplier < 1.0) {
+			errors.add(ValidationError.InvalidTimeoutMultiplier(largeRepos.timeoutMultiplier))
+		}
+		if (largeRepos.maxParallel < 1) {
+			errors.add(ValidationError.InvalidMaxParallelLargeRepos(largeRepos.maxParallel))
+		}
+		if (largeRepos.shallowCloneAfterFailures < 1) {
+			errors.add(ValidationError.InvalidShallowCloneFailures(largeRepos.shallowCloneAfterFailures))
+		}
+
+		// Validate failure tracking configuration
+		if (failureTracking.maxConsecutiveFailures < 1) {
+			errors.add(ValidationError.InvalidMaxConsecutiveFailures(failureTracking.maxConsecutiveFailures))
+		}
+		if (failureTracking.failureCooldownHours < 0) {
+			errors.add(ValidationError.InvalidFailureCooldown(failureTracking.failureCooldownHours))
+		}
+
 		return errors
 	}
 
@@ -311,6 +352,52 @@ internal class Config(
 		val certFile: String? = null,
 		@kotlinx.serialization.SerialName("verify_certificates")
 		val verifyCertificates: Boolean = true,
+	)
+
+	@Poko
+	@Serializable
+	class Http(
+		@kotlinx.serialization.SerialName("version")
+		val version: String = "HTTP/1.1",
+		@kotlinx.serialization.SerialName("post_buffer_size")
+		val postBufferSize: Long = 524288000L, // 500MB
+		@kotlinx.serialization.SerialName("adaptive_fallback")
+		val adaptiveFallback: Boolean = true,
+		@kotlinx.serialization.SerialName("low_speed_limit")
+		val lowSpeedLimit: Int = 1000, // bytes/second
+		@kotlinx.serialization.SerialName("low_speed_time")
+		val lowSpeedTime: Int = 60, // seconds
+	)
+
+	@Poko
+	@Serializable
+	class LargeRepoConfig(
+		@kotlinx.serialization.SerialName("size_threshold_kb")
+		val sizeThresholdKb: Long = 500_000L, // 500MB - repos larger than this are considered "large"
+		@kotlinx.serialization.SerialName("timeout_multiplier")
+		val timeoutMultiplier: Double = 3.0, // Multiply default timeout by this for large repos
+		@kotlinx.serialization.SerialName("max_parallel")
+		val maxParallel: Int = 2, // Maximum concurrent large repo clones
+		@kotlinx.serialization.SerialName("shallow_clone_threshold_kb")
+		val shallowCloneThresholdKb: Long = 2_000_000L, // 2GB - use shallow clone after this many failures
+		@kotlinx.serialization.SerialName("shallow_clone_after_failures")
+		val shallowCloneAfterFailures: Int = 3, // Number of failures before trying shallow clone
+		@kotlinx.serialization.SerialName("progress_reporting")
+		val progressReporting: Boolean = true, // Enable progress reporting for large repos
+	)
+
+	@Poko
+	@Serializable
+	class FailureTrackingConfig(
+		val enabled: Boolean = true,
+		@kotlinx.serialization.SerialName("state_file")
+		val stateFile: String = ".gitout-failures.json",
+		@kotlinx.serialization.SerialName("max_consecutive_failures")
+		val maxConsecutiveFailures: Int = 5, // After this many failures, apply special handling
+		@kotlinx.serialization.SerialName("failure_cooldown_hours")
+		val failureCooldownHours: Int = 24, // Hours to wait before retrying consistently failing repos
+		@kotlinx.serialization.SerialName("auto_skip_failing")
+		val autoSkipFailing: Boolean = false, // Automatically skip repos that consistently fail
 	)
 
 	@Poko
@@ -455,4 +542,46 @@ internal sealed class ValidationError {
                 override val message = "Invalid Telegram progress step percent: $step. Must be between 1 and 100."
         }
 
+	// HTTP configuration errors
+	data class InvalidHttpVersion(val version: String) : ValidationError() {
+		override val message = "Invalid HTTP version: $version. Must be HTTP/1.1 or HTTP/2."
+	}
+
+	data class InvalidPostBufferSize(val size: Long) : ValidationError() {
+		override val message = "Invalid post buffer size: $size bytes. Must be >= 1024."
+	}
+
+	data class InvalidLowSpeedLimit(val limit: Int) : ValidationError() {
+		override val message = "Invalid low speed limit: $limit bytes/s. Must be >= 0."
+	}
+
+	data class InvalidLowSpeedTime(val time: Int) : ValidationError() {
+		override val message = "Invalid low speed time: $time seconds. Must be >= 1."
+	}
+
+	// Large repo configuration errors
+	data class InvalidLargeRepoThreshold(val threshold: Long) : ValidationError() {
+		override val message = "Invalid large repo threshold: $threshold KB. Must be >= 1024 KB (1 MB)."
+	}
+
+	data class InvalidTimeoutMultiplier(val multiplier: Double) : ValidationError() {
+		override val message = "Invalid timeout multiplier: $multiplier. Must be >= 1.0."
+	}
+
+	data class InvalidMaxParallelLargeRepos(val count: Int) : ValidationError() {
+		override val message = "Invalid max parallel large repos: $count. Must be >= 1."
+	}
+
+	data class InvalidShallowCloneFailures(val count: Int) : ValidationError() {
+		override val message = "Invalid shallow clone after failures: $count. Must be >= 1."
+	}
+
+	// Failure tracking configuration errors
+	data class InvalidMaxConsecutiveFailures(val count: Int) : ValidationError() {
+		override val message = "Invalid max consecutive failures: $count. Must be >= 1."
+	}
+
+	data class InvalidFailureCooldown(val hours: Int) : ValidationError() {
+		override val message = "Invalid failure cooldown: $hours hours. Must be >= 0."
+	}
 }

@@ -35,13 +35,19 @@ internal class Engine(
 ) {
 	private var sslConfig: Config.Ssl = Config.Ssl()
 	private var sslEnvironment: Map<String, String> = emptyMap()
+	private var httpConfig: Config.Http = Config.Http()
+	private var largeRepoConfig: Config.LargeRepoConfig = Config.LargeRepoConfig()
+	private var failureTrackingConfig: Config.FailureTrackingConfig = Config.FailureTrackingConfig()
+	private var failureTracker: FailureTracker? = null
+	private var repoMetadata: Map<String, RepositoryMetadata> = emptyMap()
 
-	// Retry policy for git sync operations
+	// Retry policy for git sync operations (adaptive retry enabled)
 	private val retryPolicy = RetryPolicy(
 		maxAttempts = 6,
 		baseDelayMs = 5000L,
 		backoffStrategy = RetryPolicy.BackoffStrategy.LINEAR,
 		logger = logger,
+		adaptiveRetry = true,
 	)
 
 	/**
@@ -54,6 +60,8 @@ internal class Engine(
 		val credentials: Path?,
 		val reasons: Set<String>? = null,
 		val isNewRepo: Boolean = false,
+		val sizeKb: Long? = null, // Repository size in KB from GitHub API
+		val isLargeRepo: Boolean = false, // Whether this is considered a large repository
 	)
 
 	/**
@@ -130,6 +138,18 @@ internal class Engine(
 		sslConfig = config.ssl
 		setupSsl(config.ssl)
 
+		// Store HTTP and large repo configuration
+		httpConfig = config.http
+		largeRepoConfig = config.largeRepos
+		failureTrackingConfig = config.failureTracking
+
+		// Initialize failure tracker
+		if (config.failureTracking.enabled) {
+			val failureStateFile = destination.resolve(config.failureTracking.stateFile)
+			failureTracker = FailureTracker(failureStateFile, config.failureTracking, logger)
+			logger.debug { "Initialized failure tracker with state file: $failureStateFile" }
+		}
+
 		// Determine worker pool size: CLI option > config.toml > default (4)
 		val workerPoolSize = workers ?: config.parallelism.workers
 		logger.info { "Using $workerPoolSize parallel workers for synchronization" }
@@ -174,6 +194,9 @@ internal class Engine(
 			if (!dryRun) {
 				stateTracker.saveState(githubRepositories.metadata)
 			}
+
+			// Store metadata for size-based decisions
+			repoMetadata = githubRepositories.metadata
 
 			val nameAndOwnerToReasons = mutableMapOf<String, MutableSet<String>>()
 
@@ -241,7 +264,13 @@ internal class Engine(
 					.build()
 					.resolve("$nameAndOwner.git")
 					.toString()
-				syncTasks.add(SyncTask(nameAndOwner, repoUrl, repoDestination, githubCredentials, reasons))
+				val metadata = repoMetadata[nameAndOwner]
+				val sizeKb = metadata?.diskUsageKb
+				val isLargeRepo = sizeKb != null && sizeKb >= largeRepoConfig.sizeThresholdKb
+				if (isLargeRepo) {
+					logger.debug { "Large repository detected: $nameAndOwner (${sizeKb?.div(1024) ?: 0} MB)" }
+				}
+				syncTasks.add(SyncTask(nameAndOwner, repoUrl, repoDestination, githubCredentials, reasons, sizeKb = sizeKb, isLargeRepo = isLargeRepo))
 			}
 
 			if (config.github.clone.gists) {
@@ -352,20 +381,55 @@ internal class Engine(
 		// Create semaphore to limit concurrent operations
 		val semaphore = Semaphore(workerPoolSize)
 
+		// Create separate semaphore for large repos to limit concurrent large clone operations
+		val largeRepoSemaphore = Semaphore(largeRepoConfig.maxParallel)
+
+		// Count large repos for logging
+		val largeRepoCount = tasks.count { it.isLargeRepo }
+		if (largeRepoCount > 0) {
+			logger.info { "Found $largeRepoCount large repositories (>${largeRepoConfig.sizeThresholdKb / 1024} MB), limiting to ${largeRepoConfig.maxParallel} concurrent" }
+		}
+
 		// Execute all tasks in parallel with worker pool limit
 		coroutineScope {
 			tasks.map { task ->
 				async(Dispatchers.IO) {
+					// Check if we should skip this repo based on failure history
+					if (!dryRun && failureTracker?.shouldSkip(task.name) == true) {
+						logger.info { "Skipping ${task.name} due to repeated failures (in cooldown period)" }
+						return@async SyncResult(task, success = true, durationMs = 0) // Skip counts as success
+					}
+
 					semaphore.withPermit {
+						// Additional rate limiting for large repos
+						val useLargeRepoLimit = task.isLargeRepo && !task.destination.exists()
+						val acquireLargeRepo: suspend () -> Unit = {
+							if (useLargeRepoLimit) {
+								largeRepoSemaphore.acquire()
+							}
+						}
+						val releaseLargeRepo: () -> Unit = {
+							if (useLargeRepoLimit) {
+								largeRepoSemaphore.release()
+							}
+						}
+
+						acquireLargeRepo()
 						val taskStartTime = System.currentTimeMillis()
 						try {
 							val reasonsStr = task.reasons?.let { " because $it" } ?: ""
-							logger.lifecycle { "Starting sync: ${task.url}$reasonsStr" }
+							val sizeStr = if (task.isLargeRepo && task.sizeKb != null) " (${task.sizeKb / 1024} MB)" else ""
+							logger.lifecycle { "Starting sync: ${task.url}$reasonsStr$sizeStr" }
 
-							val syncResult = syncBare(task.destination, task.url, dryRun, task.credentials)
+							val syncResult = syncBare(task.destination, task.url, dryRun, task.credentials, task)
 
 							val taskDuration = System.currentTimeMillis() - taskStartTime
 							logger.lifecycle { "Completed sync: ${task.url}" }
+
+							// Record success in failure tracker
+							if (!dryRun) {
+								failureTracker?.recordSuccess(task.name)
+							}
 
 							// Notify about first-time backup completion
                                                         if (task.isNewRepo && !dryRun) {
@@ -385,6 +449,12 @@ internal class Engine(
 							val errorMsg = e.message ?: "Unknown error"
 							logger.warn("Failed sync: ${task.url}: $errorMsg")
 
+							// Record failure in failure tracker
+							if (!dryRun) {
+								val errorCategory = ErrorCategory.classify(errorMsg)
+								failureTracker?.recordFailure(task.name, errorMsg, errorCategory)
+							}
+
 							// Send immediate error notification
                                                         if (!dryRun) {
                                                                 telegramService.safeNotify("sync error") {
@@ -393,10 +463,17 @@ internal class Engine(
                                                         }
 
 							SyncResult(task, success = false, error = e, durationMs = taskDuration)
+						} finally {
+							releaseLargeRepo()
 						}
 					}
 				}
 			}.awaitAll().also { results.addAll(it) }
+		}
+
+		// Save failure tracker state
+		if (!dryRun) {
+			failureTracker?.saveState()
 		}
 
 		// Calculate duration
@@ -487,7 +564,13 @@ internal class Engine(
 		return null
 	}
 
-        private suspend fun syncBare(repo: Path, url: String, dryRun: Boolean, credentials: Path? = null): SyncOperationResult {
+        private suspend fun syncBare(
+		repo: Path,
+		url: String,
+		dryRun: Boolean,
+		credentials: Path? = null,
+		task: SyncTask? = null,
+	): SyncOperationResult {
                 val repoExists = repo.exists()
 
                 // Handle dry run separately (no retry needed)
@@ -498,6 +581,20 @@ internal class Engine(
 			return SyncOperationResult(hasChanges = false, commitCount = 0)
 		}
 
+		// Get clone strategy recommendation based on failure history
+		val repoName = task?.name ?: repo.name
+		val strategy = failureTracker?.getRecommendedStrategy(
+			repoName,
+			task?.sizeKb,
+			largeRepoConfig
+		) ?: CloneStrategy(
+			useHttp1 = false,
+			useShallowClone = false,
+			isLargeRepo = task?.isLargeRepo == true,
+			timeoutMultiplier = if (task?.isLargeRepo == true) largeRepoConfig.timeoutMultiplier else 1.0,
+			consecutiveFailures = 0
+		)
+
 		// Get the HEAD ref before sync (if repo exists)
                 val beforeHeadRef = if (repoExists) {
 			getHeadRef(repo)
@@ -505,9 +602,30 @@ internal class Engine(
 			null
 		}
 
-		// Use retry policy for actual sync operations
-		retryPolicy.execute(operationDescription = url) { attempt ->
-			executeSyncOperation(repo, url, credentials)
+		// Use retry policy for actual sync operations with adaptive retry
+		retryPolicy.execute(operationDescription = url) { context ->
+			// Determine HTTP/1.1 usage: from strategy, from retry context, or from config
+			val useHttp1 = strategy.useHttp1 || context.shouldUseHttp1Fallback
+
+			// Only use shallow clone after many failures and for very large repos
+			val useShallowClone = strategy.useShallowClone && !repoExists
+
+			// Show progress for large repos or when retrying
+			val showProgress = task?.isLargeRepo == true || context.isRetry
+
+			if (context.isRetry && useHttp1) {
+				logger.debug { "Retry attempt ${context.attempt} using HTTP/1.1 fallback" }
+			}
+
+			executeSyncOperation(
+				repo = repo,
+				url = url,
+				credentials = credentials,
+				forceHttp1 = useHttp1,
+				useShallowClone = useShallowClone,
+				showProgress = showProgress,
+				task = task,
+			)
 		}
 
 		// Get the HEAD ref after sync
@@ -537,12 +655,18 @@ internal class Engine(
 
 	/**
 	 * Builds the git command for syncing a repository.
+	 * @param forceHttp1 If true, forces HTTP/1.1 even if config allows HTTP/2
+	 * @param useShallowClone If true, uses shallow clone instead of mirror (fallback for huge repos)
+	 * @param showProgress If true, adds --progress flag for visibility
 	 */
         private fun buildGitCommand(
                 repo: Path,
                 url: String,
                 credentials: Path?,
                 repoExists: Boolean,
+		forceHttp1: Boolean = false,
+		useShallowClone: Boolean = false,
+		showProgress: Boolean = false,
         ): List<String> {
                 val command = mutableListOf("git")
 
@@ -552,6 +676,25 @@ internal class Engine(
 			command.add("http.sslVerify=false")
 		}
 
+		// HTTP version: use HTTP/1.1 if configured, if forceHttp1 is set, or if adaptive fallback recommends it
+		val useHttp1 = forceHttp1 || httpConfig.version == "HTTP/1.1"
+		if (useHttp1) {
+			command.add("-c")
+			command.add("http.version=HTTP/1.1")
+		}
+
+		// Buffer size from config
+		command.add("-c")
+		command.add("http.postBuffer=${httpConfig.postBufferSize}")
+
+		// Low speed limit settings to detect stalled transfers
+		if (httpConfig.lowSpeedLimit > 0) {
+			command.add("-c")
+			command.add("http.lowSpeedLimit=${httpConfig.lowSpeedLimit}")
+			command.add("-c")
+			command.add("http.lowSpeedTime=${httpConfig.lowSpeedTime}")
+		}
+
 		if (credentials != null) {
 			command.add("-c")
 			command.add("""credential.helper=store --file=${credentials.absolutePathString()}""")
@@ -559,10 +702,22 @@ internal class Engine(
 
                 if (!repoExists) {
 			command.apply {
-				add("clone")
-				add("--mirror")
-				add(url)
-				add(repo.name)
+				if (useShallowClone) {
+					// Shallow clone for problematic large repos
+					add("clone")
+					add("--depth=1")
+					add("--single-branch")
+					if (showProgress) add("--progress")
+					add(url)
+					add(repo.name)
+				} else {
+					// Normal mirror clone
+					add("clone")
+					add("--mirror")
+					if (showProgress) add("--progress")
+					add(url)
+					add(repo.name)
+				}
 			}
 		} else {
 			command.apply {
@@ -673,9 +828,25 @@ internal class Engine(
 	 * Executes a single git sync operation.
 	 * Throws an exception if the operation fails.
 	 */
-        private fun executeSyncOperation(repo: Path, url: String, credentials: Path?) {
+        private fun executeSyncOperation(
+		repo: Path,
+		url: String,
+		credentials: Path?,
+		forceHttp1: Boolean = false,
+		useShallowClone: Boolean = false,
+		showProgress: Boolean = false,
+		task: SyncTask? = null,
+	) {
                 val repoExistsBeforeCommand = repo.exists()
-                val command = buildGitCommand(repo, url, credentials, repoExistsBeforeCommand)
+                val command = buildGitCommand(
+			repo = repo,
+			url = url,
+			credentials = credentials,
+			repoExists = repoExistsBeforeCommand,
+			forceHttp1 = forceHttp1,
+			useShallowClone = useShallowClone,
+			showProgress = showProgress,
+		)
 
                 val directory = if (!repoExistsBeforeCommand) {
                         repo.parent.apply {
@@ -698,8 +869,17 @@ internal class Engine(
 
                 val process = processBuilder.start()
 
+		// Calculate effective timeout (apply multiplier for large repos)
+		val effectiveTimeout = if (task?.isLargeRepo == true) {
+			val multiplied = timeout * largeRepoConfig.timeoutMultiplier
+			logger.debug { "Using extended timeout for large repo: $multiplied (${largeRepoConfig.timeoutMultiplier}x)" }
+			multiplied
+		} else {
+			timeout
+		}
+
                 try {
-                        if (!process.waitFor(timeout)) {
+                        if (!process.waitFor(effectiveTimeout)) {
                                 logger.warn("Git process timed out for $url, terminating process")
                                 process.destroy()
                                 if (process.isAlive) {
@@ -707,7 +887,7 @@ internal class Engine(
                                         process.destroyForcibly()
                                         process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
                                 }
-                                throw IllegalStateException("Unable to sync $url into $repo: timeout $timeout")
+                                throw IllegalStateException("Unable to sync $url into $repo: timeout $effectiveTimeout")
                         }
 
                         val exitCode = process.exitValue()
