@@ -33,6 +33,8 @@ internal class Config(
 	val largeRepos: LargeRepoConfig = LargeRepoConfig(),
 	@kotlinx.serialization.SerialName("failure_tracking")
 	val failureTracking: FailureTrackingConfig = FailureTrackingConfig(),
+	@kotlinx.serialization.SerialName("exit_on_failure")
+	val exitOnFailure: Boolean = true, // Default true for backward compatibility
 ) {
 	companion object {
 		private val lenientToml = Toml(TomlInputConfig(ignoreUnknownNames = true))

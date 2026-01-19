@@ -331,7 +331,7 @@ internal class Engine(
 		// Execute all sync tasks in parallel with worker pool
 		// Use try-finally to guarantee credentials cleanup even on exceptions
 		try {
-			executeSyncTasksInParallel(syncTasks, workerPoolSize, dryRun)
+			executeSyncTasksInParallel(syncTasks, workerPoolSize, dryRun, config.exitOnFailure)
 		} finally {
 			// Clean up credentials file immediately after sync completes (or fails)
 			githubCredentials?.let { credPath ->
@@ -355,6 +355,7 @@ internal class Engine(
 		tasks: List<SyncTask>,
 		workerPoolSize: Int,
 		dryRun: Boolean,
+		exitOnFailure: Boolean,
 	) {
 		if (tasks.isEmpty()) {
 			logger.info { "No repositories to synchronize" }
@@ -507,7 +508,11 @@ internal class Engine(
 
 			val errorMessage = "$failed out of ${tasks.size} repositories failed to synchronize"
 			logger.warn(errorMessage)
-			throw IllegalStateException(errorMessage)
+
+			if (exitOnFailure) {
+				throw IllegalStateException(errorMessage)
+			}
+			// Otherwise continue without throwing - container keeps running
 		}
 	}
 
@@ -604,6 +609,16 @@ internal class Engine(
 
 		// Use retry policy for actual sync operations with adaptive retry
 		retryPolicy.execute(operationDescription = url) { context ->
+			// On retry for NEW repos, clean up any corrupted partial clone directory
+			// This handles the case where a clone fails mid-way (timeout, HTTP/2 error)
+			// leaving a partial .git directory that prevents successful retry
+			if (context.isRetry && !repoExists) {
+				if (repo.exists()) {
+					logger.info { "Cleaning up corrupted partial clone at $repo before retry attempt ${context.attempt}" }
+					cleanupIncompleteRepository(repo)
+				}
+			}
+
 			// Determine HTTP/1.1 usage: from strategy, from retry context, or from config
 			val useHttp1 = strategy.useHttp1 || context.shouldUseHttp1Fallback
 
