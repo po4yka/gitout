@@ -1,5 +1,5 @@
 FROM alpine:3.23.2 AS build
-ENV GRADLE_OPTS="-Dkotlin.incremental=false -Dorg.gradle.daemon=false -Dorg.gradle.vfs.watch=false -Dorg.gradle.logging.stacktrace=full"
+ENV GRADLE_OPTS="-Xmx3g -XX:MaxMetaspaceSize=512m -Dkotlin.incremental=false -Dorg.gradle.daemon=false -Dorg.gradle.vfs.watch=false -Dorg.gradle.logging.stacktrace=full"
 
 RUN apk add --no-cache \
       openjdk21 \

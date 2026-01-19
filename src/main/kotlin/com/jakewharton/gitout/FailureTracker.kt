@@ -225,8 +225,7 @@ internal data class FailureState(
  * Failure record for a single repository.
  */
 @Serializable
-@Poko
-internal class RepositoryFailureRecord(
+internal data class RepositoryFailureRecord(
 	val name: String,
 	val consecutiveFailures: Int,
 	val totalFailures: Int,

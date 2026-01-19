@@ -9,7 +9,7 @@ import assertk.assertions.isTrue
 import org.junit.Test
 
 class TelegramNotificationServiceTest {
-	private val quietLogger = Logger(quiet = true, verbosity = 0)
+	private val quietLogger = Logger(quiet = true, level = 0)
 
 	@Test
 	fun `service disabled when config is null`() {
