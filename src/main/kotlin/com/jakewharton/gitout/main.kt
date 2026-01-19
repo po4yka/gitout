@@ -150,9 +150,15 @@ private class GitOutCommand(
 		if (schedule != null) {
 			logger.lifecycle { "Sync schedule: $schedule" }
 			val pulse = clock.schedulePulse(schedule, timeZone)
-			pulse.beat(strategy = SkipNext) {
-				logger.lifecycle { "Schedule trigger for $it, executing at ${clock.now()}" }
-				engine.performSync(dryRun)
+			pulse.beat(strategy = SkipNext) { scheduledTime ->
+				logger.lifecycle { "Schedule trigger for $scheduledTime, executing at ${clock.now()}" }
+				try {
+					engine.performSync(dryRun)
+				} catch (e: Exception) {
+					logger.warn("Scheduled sync failed: ${e.message}")
+					logger.debug { "Sync failure details: ${e.stackTraceToString()}" }
+					// Continue scheduling - don't break the loop
+				}
 			}
 		} else {
 			engine.performSync(dryRun)
