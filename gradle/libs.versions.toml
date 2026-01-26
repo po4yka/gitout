@@ -26,7 +26,7 @@ clikt = "com.github.ajalt.clikt:clikt:5.1.0"
 ktoml = "com.akuleshov7:ktoml-core:0.7.1"
 cardiologist = "io.github.kevincianfarini.cardiologist:cardiologist:0.8.0"
 poko-gradlePlugin = "dev.drewhamilton.poko:poko-gradle-plugin:0.21.1"
-buildConfig-gradlePlugin = "com.github.gmazzo.buildconfig:plugin:5.5.4"
+buildConfig-gradlePlugin = "com.github.gmazzo.buildconfig:plugin:6.0.7"
 telegram-bot = { module = "io.github.kotlin-telegram-bot.kotlin-telegram-bot:telegram", version.ref = "telegram-bot" }
 
 junit = "junit:junit:4.13.2"
