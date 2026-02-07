@@ -25,6 +25,7 @@ VOLUME /data
 
 RUN apk add --no-cache \
       git \
+      git-lfs \
       openjdk17-jre-headless \
       tini \
       ca-certificates \
