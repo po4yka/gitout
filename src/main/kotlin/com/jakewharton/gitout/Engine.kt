@@ -40,6 +40,8 @@ internal class Engine(
 	private var failureTrackingConfig: Config.FailureTrackingConfig = Config.FailureTrackingConfig()
 	private var failureTracker: FailureTracker? = null
 	private var repoMetadata: Map<String, RepositoryMetadata> = emptyMap()
+	private var maintenance: RepositoryMaintenance? = null
+	private var lfsSupport: LfsSupport? = null
 
 	// Retry policy for git sync operations (adaptive retry enabled)
 	private val retryPolicy = RetryPolicy(
@@ -148,6 +150,23 @@ internal class Engine(
 			val failureStateFile = destination.resolve(config.failureTracking.stateFile)
 			failureTracker = FailureTracker(failureStateFile, config.failureTracking, logger)
 			logger.debug { "Initialized failure tracker with state file: $failureStateFile" }
+		}
+
+		// Initialize repository maintenance
+		if (config.maintenance.enabled) {
+			maintenance = RepositoryMaintenance(logger, config.maintenance, timeout)
+			logger.info { "Repository maintenance enabled (strategy: ${config.maintenance.strategy})" }
+		}
+
+		// Initialize LFS support
+		if (config.lfs.fetchLfs) {
+			val lfs = LfsSupport(logger, timeout, sslEnvironment)
+			if (lfs.isLfsAvailable()) {
+				lfsSupport = lfs
+				logger.info { "Git LFS support enabled" }
+			} else {
+				logger.warn("LFS fetching enabled in config but git-lfs is not installed")
+			}
 		}
 
 		// Determine worker pool size: CLI option > config.toml > default (4)
@@ -356,6 +375,7 @@ internal class Engine(
 		workerPoolSize: Int,
 		dryRun: Boolean,
 		exitOnFailure: Boolean,
+		destinationRoot: Path = destination,
 	) {
 		if (tasks.isEmpty()) {
 			logger.info { "No repositories to synchronize" }
@@ -432,6 +452,16 @@ internal class Engine(
 								failureTracker?.recordSuccess(task.name)
 							}
 
+							// Run post-sync maintenance (gc/repack/commit-graph)
+							if (!dryRun) {
+								maintenance?.runPostSyncMaintenance(task.destination)
+							}
+
+							// Fetch LFS objects if enabled
+							if (!dryRun) {
+								lfsSupport?.syncLfsIfNeeded(task.destination)
+							}
+
 							// Notify about first-time backup completion
                                                         if (task.isNewRepo && !dryRun) {
                                                                 telegramService.safeNotify("first backup") {
@@ -475,6 +505,12 @@ internal class Engine(
 		// Save failure tracker state
 		if (!dryRun) {
 			failureTracker?.saveState()
+		}
+
+		// Check if periodic full repack is due
+		if (!dryRun && maintenance?.shouldRunFullRepack() == true) {
+			logger.info { "Periodic full repack triggered" }
+			maintenance?.runFullRepack(destinationRoot)
 		}
 
 		// Calculate duration

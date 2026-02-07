@@ -33,6 +33,8 @@ internal class Config(
 	val largeRepos: LargeRepoConfig = LargeRepoConfig(),
 	@kotlinx.serialization.SerialName("failure_tracking")
 	val failureTracking: FailureTrackingConfig = FailureTrackingConfig(),
+	val maintenance: Maintenance = Maintenance(),
+	val lfs: Lfs = Lfs(),
 	@kotlinx.serialization.SerialName("exit_on_failure")
 	val exitOnFailure: Boolean = true, // Default true for backward compatibility
 ) {
@@ -298,6 +300,20 @@ internal class Config(
 			errors.add(ValidationError.InvalidFailureCooldown(failureTracking.failureCooldownHours))
 		}
 
+		// Validate maintenance configuration
+		if (maintenance.strategy !in listOf("gc-auto", "geometric", "none")) {
+			errors.add(ValidationError.InvalidMaintenanceStrategy(maintenance.strategy))
+		}
+		if (maintenance.fullRepackInterval !in listOf("never", "weekly", "monthly")) {
+			errors.add(ValidationError.InvalidFullRepackInterval(maintenance.fullRepackInterval))
+		}
+		if (maintenance.repackWindow < 1) {
+			errors.add(ValidationError.InvalidRepackWindow(maintenance.repackWindow))
+		}
+		if (maintenance.repackDepth < 1) {
+			errors.add(ValidationError.InvalidRepackDepth(maintenance.repackDepth))
+		}
+
 		return errors
 	}
 
@@ -400,6 +416,28 @@ internal class Config(
 		val failureCooldownHours: Int = 24, // Hours to wait before retrying consistently failing repos
 		@kotlinx.serialization.SerialName("auto_skip_failing")
 		val autoSkipFailing: Boolean = false, // Automatically skip repos that consistently fail
+	)
+
+	@Poko
+	@Serializable
+	class Maintenance(
+		val enabled: Boolean = false,
+		val strategy: String = "gc-auto",
+		@kotlinx.serialization.SerialName("full_repack_interval")
+		val fullRepackInterval: String = "never",
+		@kotlinx.serialization.SerialName("repack_window")
+		val repackWindow: Int = 50,
+		@kotlinx.serialization.SerialName("repack_depth")
+		val repackDepth: Int = 50,
+		@kotlinx.serialization.SerialName("write_commit_graph")
+		val writeCommitGraph: Boolean = true,
+	)
+
+	@Poko
+	@Serializable
+	class Lfs(
+		@kotlinx.serialization.SerialName("fetch_lfs")
+		val fetchLfs: Boolean = false,
 	)
 
 	@Poko
@@ -585,5 +623,22 @@ internal sealed class ValidationError {
 
 	data class InvalidFailureCooldown(val hours: Int) : ValidationError() {
 		override val message = "Invalid failure cooldown: $hours hours. Must be >= 0."
+	}
+
+	// Maintenance configuration errors
+	data class InvalidMaintenanceStrategy(val strategy: String) : ValidationError() {
+		override val message = "Invalid maintenance strategy: $strategy. Must be one of: gc-auto, geometric, none."
+	}
+
+	data class InvalidFullRepackInterval(val interval: String) : ValidationError() {
+		override val message = "Invalid full repack interval: $interval. Must be one of: never, weekly, monthly."
+	}
+
+	data class InvalidRepackWindow(val window: Int) : ValidationError() {
+		override val message = "Invalid repack window: $window. Must be >= 1."
+	}
+
+	data class InvalidRepackDepth(val depth: Int) : ValidationError() {
+		override val message = "Invalid repack depth: $depth. Must be >= 1."
 	}
 }
