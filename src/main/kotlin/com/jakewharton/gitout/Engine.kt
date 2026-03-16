@@ -64,6 +64,8 @@ internal class Engine(
 		val isNewRepo: Boolean = false,
 		val sizeKb: Long? = null, // Repository size in KB from GitHub API
 		val isLargeRepo: Boolean = false, // Whether this is considered a large repository
+		val singleBranchOnly: Boolean = false,
+		val defaultBranch: String? = null, // Actual default branch from GitHub API
 	)
 
 	/**
@@ -289,7 +291,17 @@ internal class Engine(
 				if (isLargeRepo) {
 					logger.debug { "Large repository detected: $nameAndOwner (${sizeKb?.div(1024) ?: 0} MB)" }
 				}
-				syncTasks.add(SyncTask(nameAndOwner, repoUrl, repoDestination, githubCredentials, reasons, sizeKb = sizeKb, isLargeRepo = isLargeRepo))
+				syncTasks.add(SyncTask(
+					nameAndOwner,
+					repoUrl,
+					repoDestination,
+					githubCredentials,
+					reasons,
+					sizeKb = sizeKb,
+					isLargeRepo = isLargeRepo,
+					singleBranchOnly = config.github.clone.singleBranchOnly,
+					defaultBranch = metadata?.defaultBranch,
+				))
 			}
 
 			if (config.github.clone.gists) {
@@ -442,7 +454,15 @@ internal class Engine(
 							val sizeStr = if (task.isLargeRepo && task.sizeKb != null) " (${task.sizeKb / 1024} MB)" else ""
 							logger.lifecycle { "Starting sync: ${task.url}$reasonsStr$sizeStr" }
 
-							val syncResult = syncBare(task.destination, task.url, dryRun, task.credentials, task)
+							val syncResult = syncBare(
+							task.destination,
+							task.url,
+							dryRun,
+							task.credentials,
+							task,
+							singleBranchOnly = task.singleBranchOnly,
+							defaultBranch = task.defaultBranch,
+						)
 
 							val taskDuration = System.currentTimeMillis() - taskStartTime
 							logger.lifecycle { "Completed sync: ${task.url}" }
@@ -611,6 +631,8 @@ internal class Engine(
 		dryRun: Boolean,
 		credentials: Path? = null,
 		task: SyncTask? = null,
+		singleBranchOnly: Boolean = false,
+		defaultBranch: String? = null,
 	): SyncOperationResult {
                 val repoExists = repo.exists()
 
@@ -642,6 +664,10 @@ internal class Engine(
 		} else {
 			null
 		}
+
+		// Resolve default branch for non-GitHub repos before retry loop (avoid repeated ls-remote calls)
+		val resolvedBranch = defaultBranch
+			?: if (singleBranchOnly) detectDefaultBranch(url, credentials) else null
 
 		// Use retry policy for actual sync operations with adaptive retry
 		retryPolicy.execute(operationDescription = url) { context ->
@@ -676,6 +702,8 @@ internal class Engine(
 				useShallowClone = useShallowClone,
 				showProgress = showProgress,
 				task = task,
+				singleBranchOnly = singleBranchOnly,
+				defaultBranch = resolvedBranch,
 			)
 		}
 
@@ -718,8 +746,15 @@ internal class Engine(
 		forceHttp1: Boolean = false,
 		useShallowClone: Boolean = false,
 		showProgress: Boolean = false,
+		singleBranchOnly: Boolean = false,
+		defaultBranch: String? = null,
         ): List<String> {
                 val command = mutableListOf("git")
+
+		// Prevent "dubious ownership" errors when repo dir has
+		// different owner (e.g. after container user mismatch)
+		command.add("-c")
+		command.add("safe.directory=*")
 
 		// Add SSL configuration
 		if (!sslConfig.verifyCertificates) {
@@ -761,6 +796,18 @@ internal class Engine(
 					if (showProgress) add("--progress")
 					add(url)
 					add(repo.name)
+				} else if (singleBranchOnly) {
+					// Bare single-branch clone: tracks only default branch
+					add("clone")
+					add("--bare")
+					add("--single-branch")
+					if (defaultBranch != null) {
+						add("--branch")
+						add(defaultBranch)
+					}
+					if (showProgress) add("--progress")
+					add(url)
+					add(repo.name)
 				} else {
 					// Normal mirror clone
 					add("clone")
@@ -772,9 +819,17 @@ internal class Engine(
 			}
 		} else {
 			command.apply {
-				add("remote")
-				add("update")
-				add("--prune")
+				if (singleBranchOnly) {
+					// Bare (non-mirror) repo: standard fetch with prune
+					add("fetch")
+					add("--prune")
+					add("origin")
+				} else {
+					// Mirror repo: fetch all refs
+					add("remote")
+					add("update")
+					add("--prune")
+				}
 			}
 		}
 
@@ -887,8 +942,16 @@ internal class Engine(
 		useShallowClone: Boolean = false,
 		showProgress: Boolean = false,
 		task: SyncTask? = null,
+		singleBranchOnly: Boolean = false,
+		defaultBranch: String? = null,
 	) {
                 val repoExistsBeforeCommand = repo.exists()
+
+		// Repair refspec on existing single-branch repos if default branch is known
+		if (singleBranchOnly && repoExistsBeforeCommand && defaultBranch != null) {
+			repairRefspecIfNeeded(repo, defaultBranch)
+		}
+
                 val command = buildGitCommand(
 			repo = repo,
 			url = url,
@@ -897,6 +960,8 @@ internal class Engine(
 			forceHttp1 = forceHttp1,
 			useShallowClone = useShallowClone,
 			showProgress = showProgress,
+			singleBranchOnly = singleBranchOnly,
+			defaultBranch = defaultBranch,
 		)
 
                 val directory = if (!repoExistsBeforeCommand) {
@@ -954,6 +1019,125 @@ internal class Engine(
                         throw t
                 }
         }
+
+	/**
+	 * Detects the default branch of a remote repository using git ls-remote.
+	 * Used for non-GitHub repos that don't have GraphQL metadata.
+	 * Returns null if detection fails.
+	 */
+	private fun detectDefaultBranch(url: String, credentials: Path?): String? {
+		return try {
+			val command = mutableListOf("git")
+			if (credentials != null) {
+				command.add("-c")
+				command.add("credential.helper=store --file=${credentials.absolutePathString()}")
+			}
+			if (!sslConfig.verifyCertificates) {
+				command.add("-c")
+				command.add("http.sslVerify=false")
+			}
+			command.addAll(listOf("ls-remote", "--symref", url, "HEAD"))
+
+			val process = ProcessBuilder()
+				.command(command)
+				.redirectError(ProcessBuilder.Redirect.PIPE)
+				.redirectOutput(ProcessBuilder.Redirect.PIPE)
+				.also { pb ->
+					if (sslEnvironment.isNotEmpty()) {
+						pb.environment().putAll(sslEnvironment)
+					}
+				}
+				.start()
+
+			if (!process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)) {
+				process.destroyForcibly()
+				logger.debug { "Timed out detecting default branch for $url" }
+				return null
+			}
+
+			if (process.exitValue() != 0) {
+				logger.debug { "Failed to detect default branch for $url (exit ${process.exitValue()})" }
+				return null
+			}
+
+			val output = process.inputStream.bufferedReader().use { it.readText() }
+			val match = Regex("""ref: refs/heads/(\S+)\tHEAD""").find(output)
+			val branch = match?.groupValues?.get(1)
+			if (branch != null) {
+				logger.debug { "Detected default branch for $url: $branch" }
+			} else {
+				logger.debug { "Could not parse default branch from ls-remote output for $url" }
+			}
+			branch
+		} catch (e: Exception) {
+			logger.debug { "Error detecting default branch for $url: ${e.message}" }
+			null
+		}
+	}
+
+	/**
+	 * Repairs the fetch refspec of an existing single-branch repo if it doesn't
+	 * match the expected default branch. This fixes repos that were previously
+	 * pruned with hardcoded main/master refspecs.
+	 */
+	private fun repairRefspecIfNeeded(repo: Path, defaultBranch: String) {
+		try {
+			val process = ProcessBuilder()
+				.command("git", "-C", repo.absolutePathString(),
+					"config", "--get-all", "remote.origin.fetch")
+				.redirectError(ProcessBuilder.Redirect.PIPE)
+				.redirectOutput(ProcessBuilder.Redirect.PIPE)
+				.start()
+
+			if (!process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)) {
+				process.destroyForcibly()
+				return
+			}
+
+			val currentRefspecs = process.inputStream.bufferedReader()
+				.use { it.readLines() }
+				.map { it.trim() }
+				.filter { it.isNotEmpty() }
+
+			val expectedRefspec = "+refs/heads/$defaultBranch:refs/heads/$defaultBranch"
+
+			// Already correct
+			if (currentRefspecs.size == 1 && currentRefspecs[0] == expectedRefspec) {
+				return
+			}
+
+			// Mirror refspec -- don't touch mirror repos
+			if (currentRefspecs.any { it == "+refs/*:refs/*" }) {
+				return
+			}
+
+			logger.info { "Repairing refspec for ${repo.name}: setting to track '$defaultBranch'" }
+
+			// Unset all existing fetch refspecs (exit 5 = key not found, acceptable)
+			ProcessBuilder()
+				.command("git", "-C", repo.absolutePathString(),
+					"config", "--unset-all", "remote.origin.fetch")
+				.start().waitFor(10, java.util.concurrent.TimeUnit.SECONDS)
+
+			// Set the correct refspec
+			val setProcess = ProcessBuilder()
+				.command("git", "-C", repo.absolutePathString(),
+					"config", "remote.origin.fetch", expectedRefspec)
+				.start()
+			setProcess.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)
+			if (setProcess.exitValue() != 0) {
+				logger.warn("Failed to set refspec for ${repo.name} (exit ${setProcess.exitValue()})")
+				return
+			}
+
+			// Fix HEAD to point to the correct branch
+			repo.resolve("HEAD").writeText("ref: refs/heads/$defaultBranch\n")
+
+			logger.debug { "Refspec repaired for ${repo.name}: $currentRefspecs -> [$expectedRefspec]" }
+		} catch (e: Exception) {
+			logger.warn("Failed to repair refspec for ${repo.name}: ${e.message}")
+		}
+	}
 
         private fun cleanupIncompleteRepository(repo: Path) {
                 if (repo.notExists()) {

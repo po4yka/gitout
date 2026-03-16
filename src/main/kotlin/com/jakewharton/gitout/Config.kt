@@ -354,6 +354,8 @@ internal class Config(
 			val gists: Boolean = true,
 			val repos: List<String> = emptyList(),
 			val ignore: List<String> = emptyList(),
+			@kotlinx.serialization.SerialName("single_branch_only")
+			val singleBranchOnly: Boolean = false,
 		)
 	}
 
