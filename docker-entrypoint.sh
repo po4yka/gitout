@@ -1,7 +1,13 @@
 #!/bin/bash
 set -e
 
-# Handle PUID and PGID for file permissions
+# If already running as non-root (e.g. via docker-compose user: directive),
+# skip user management and run directly.
+if [ "$(id -u)" -ne 0 ]; then
+    exec /app/bin/gitout "$@"
+fi
+
+# Running as root: handle PUID and PGID for file permissions
 if [ -n "$PUID" ] && [ -n "$PGID" ]; then
     # Validate PUID and PGID are numeric
     if ! [[ "$PUID" =~ ^[0-9]+$ ]]; then
