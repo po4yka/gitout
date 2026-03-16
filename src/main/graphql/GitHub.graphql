@@ -18,6 +18,7 @@ query UserRepos(
           description
           updatedAt
           diskUsage
+          defaultBranchRef { name }
         }
       }
     }
@@ -33,6 +34,7 @@ query UserRepos(
           description
           updatedAt
           diskUsage
+          defaultBranchRef { name }
         }
       }
     }
@@ -48,6 +50,7 @@ query UserRepos(
           description
           updatedAt
           diskUsage
+          defaultBranchRef { name }
         }
       }
     }

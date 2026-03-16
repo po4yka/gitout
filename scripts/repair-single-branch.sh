@@ -46,9 +46,9 @@ while IFS= read -r repo_dir; do
         continue
     fi
 
-    # Detect default branch via ls-remote
+    # Detect default branch via ls-remote (grep returns 1 on no match, suppress with || true)
     default_branch=$(git "${cred_args[@]}" ls-remote --symref "$url" HEAD 2>/dev/null \
-        | grep '^ref:' | sed 's|ref: refs/heads/||;s|\t.*||')
+        | grep '^ref:' | sed 's|ref: refs/heads/||;s|\t.*||' || true)
 
     if [[ -z "$default_branch" ]]; then
         echo "[$total] SKIP $name: could not detect default branch"
