@@ -108,18 +108,29 @@ internal class RepositoryStateTracker(
 	/**
 	 * Saves the current repository state to disk.
 	 */
-	fun saveState(repositories: Map<String, RepositoryMetadata>) {
+	fun saveState(
+		repositories: Map<String, RepositoryMetadata>,
+		excludedRepos: Map<String, ExcludedRepo> = emptyMap(),
+	) {
 		try {
 			val state = RepositoryState(
 				version = 1,
 				lastUpdated = System.currentTimeMillis(),
 				repositories = repositories,
+				excludedRepos = excludedRepos,
 			)
 			stateFile.writeText(json.encodeToString(state))
-			logger.debug { "Saved repository state with ${repositories.size} repositories" }
+			logger.debug { "Saved repository state with ${repositories.size} repositories, ${excludedRepos.size} excluded" }
 		} catch (e: Exception) {
 			logger.warn("Failed to save repository state: ${e.message}")
 		}
+	}
+
+	/**
+	 * Returns the current exclusion list from saved state.
+	 */
+	fun getExcludedRepos(): Map<String, ExcludedRepo> {
+		return loadState()?.excludedRepos ?: emptyMap()
 	}
 
 	private fun loadState(): RepositoryState? {
@@ -143,6 +154,16 @@ internal data class RepositoryState(
 	val version: Int,
 	val lastUpdated: Long,
 	val repositories: Map<String, RepositoryMetadata>,
+	val excludedRepos: Map<String, ExcludedRepo> = emptyMap(),
+)
+
+@Serializable
+@Poko
+internal class ExcludedRepo(
+	val name: String,
+	val excludedAt: Long,
+	val reason: String,
+	val lastMetadata: RepositoryMetadata? = null,
 )
 
 @Serializable

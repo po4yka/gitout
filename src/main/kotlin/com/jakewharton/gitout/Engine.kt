@@ -211,9 +211,32 @@ internal class Engine(
 				}
 			}
 
-			// Save the current state (will be updated after sync completes)
+			// Manage exclusion list for deleted/inaccessible repos
+			val excludedRepos = stateTracker.getExcludedRepos().toMutableMap()
+
+			// Add newly deleted repos to exclusion list
+			for (change in repositoryChanges.deleted) {
+				if (change.name !in excludedRepos) {
+					excludedRepos[change.name] = ExcludedRepo(
+						name = change.name,
+						excludedAt = System.currentTimeMillis(),
+						reason = "deleted",
+						lastMetadata = change.metadata,
+					)
+					logger.info { "Excluding deleted/inaccessible repo: ${change.name}" }
+				}
+			}
+
+			// Re-include repos that have reappeared in the API
+			val reappeared = excludedRepos.keys.filter { it in githubRepositories.metadata }
+			for (name in reappeared) {
+				excludedRepos.remove(name)
+				logger.info { "Re-including previously excluded repo: $name (reappeared in API)" }
+			}
+
+			// Save the current state with exclusions
 			if (!dryRun) {
-				stateTracker.saveState(githubRepositories.metadata)
+				stateTracker.saveState(githubRepositories.metadata, excludedRepos)
 			}
 
 			// Store metadata for size-based decisions
@@ -256,6 +279,17 @@ internal class Engine(
 				} else {
 					logger.warn("Unused ignore: $ignore")
 				}
+			}
+
+			// Filter out excluded (deleted/inaccessible) repos
+			for (excluded in excludedRepos.keys) {
+				val reasons = nameAndOwnerToReasons.remove(excluded)
+				if (reasons != null) {
+					logger.debug { "Skipping excluded repo: $excluded (was $reasons)" }
+				}
+			}
+			if (excludedRepos.isNotEmpty()) {
+				logger.info { "Excluding ${excludedRepos.size} previously deleted/inaccessible repositories from sync" }
 			}
 
 			githubCredentials = if (dryRun) {
