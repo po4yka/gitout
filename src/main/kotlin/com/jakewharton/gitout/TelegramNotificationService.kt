@@ -739,6 +739,15 @@ internal class TelegramNotificationService(
                                 "network is unreachable",
                                 "no route to host",
                                 "temporary failure in name resolution",
+                                "connection reset",
+                                "unexpected disconnect",
+                                "recv failure",
+                                "couldn't connect",
+                                "name or service not known",
+                                "early eof",
+                                "error categories: network_error",
+                                "error categories: http2_error",
+                                "error categories: timeout",
                         ),
                         ErrorCategory.AUTHENTICATION to listOf(
                                 "authentication failed",
@@ -748,6 +757,9 @@ internal class TelegramNotificationService(
                                 "403 forbidden",
                                 "could not read username",
                                 "invalid credentials",
+                                "bad credentials",
+                                "access denied",
+                                "error categories: auth_error",
                         ),
                         ErrorCategory.GIT_ERROR to listOf(
                                 "not a git repository",
@@ -756,11 +768,17 @@ internal class TelegramNotificationService(
                                 "fatal: unable to access",
                                 "remote: repository not found",
                                 "does not appear to be a git",
+                                "repository is empty",
+                                "nonexistent ref",
+                                "error categories: repository_error",
                         ),
                         ErrorCategory.DISK_SPACE to listOf(
                                 "no space left on device",
                                 "disk quota exceeded",
                                 "insufficient storage",
+                                "out of memory",
+                                "cannot allocate",
+                                "error categories: storage_error",
                         ),
                         ErrorCategory.RATE_LIMITING to listOf(
                                 "rate limit",
@@ -775,6 +793,7 @@ internal class TelegramNotificationService(
                                 "certificate",
                                 "handshake failure",
                                 "handshake failed",
+                                "error categories: ssl_error",
                         ),
                 )
 

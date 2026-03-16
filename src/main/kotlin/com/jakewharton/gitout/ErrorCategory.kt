@@ -111,6 +111,8 @@ internal enum class ErrorCategory {
 				lowerMessage.contains("access denied") ||
 				lowerMessage.contains("invalid credentials") ||
 				lowerMessage.contains("bad credentials") ||
+				lowerMessage.contains("could not read username") ||
+				lowerMessage.contains("terminal prompts disabled") ||
 				(lowerMessage.contains("repository not found") && !lowerMessage.contains("clone"))) {
 				return AUTH_ERROR
 			}
@@ -137,7 +139,10 @@ internal enum class ErrorCategory {
 			if (lowerMessage.contains("repository is empty") ||
 				lowerMessage.contains("remote head") ||
 				lowerMessage.contains("nonexistent ref") ||
-				lowerMessage.contains("invalid ref")) {
+				lowerMessage.contains("invalid ref") ||
+				lowerMessage.contains("does not appear to be a git") ||
+				lowerMessage.contains("fatal: unable to access") ||
+				lowerMessage.contains("404 not found")) {
 				return REPOSITORY_ERROR
 			}
 

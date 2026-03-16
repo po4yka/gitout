@@ -1,6 +1,6 @@
 package com.jakewharton.gitout
 
-import java.lang.ProcessBuilder.Redirect.INHERIT
+import java.lang.ProcessBuilder.Redirect.PIPE
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -975,7 +975,7 @@ internal class Engine(
                 val processBuilder = ProcessBuilder()
                         .command(command)
                         .directory(directory.toFile())
-                        .redirectError(INHERIT)
+                        .redirectError(PIPE)
 
                 // Apply SSL environment variables to the subprocess
                 if (sslEnvironment.isNotEmpty()) {
@@ -984,6 +984,11 @@ internal class Engine(
                 }
 
                 val process = processBuilder.start()
+
+		// Read stderr in a background thread to prevent pipe buffer deadlock
+		val stderrFuture = java.util.concurrent.CompletableFuture.supplyAsync {
+			process.errorStream.bufferedReader().use { it.readText() }
+		}
 
 		// Calculate effective timeout (apply multiplier for large repos)
 		val effectiveTimeout = if (task?.isLargeRepo == true) {
@@ -1003,14 +1008,25 @@ internal class Engine(
                                         process.destroyForcibly()
                                         process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
                                 }
-                                throw IllegalStateException("Unable to sync $url into $repo: timeout $effectiveTimeout")
+				val stderr = stderrFuture.getNow("").trim()
+				if (stderr.isNotEmpty()) {
+					logger.warn("Git stderr: $stderr")
+				}
+                                throw IllegalStateException("Unable to sync $url into $repo: timeout $effectiveTimeout\n$stderr".trimEnd())
                         }
 
                         val exitCode = process.exitValue()
+			val stderr = stderrFuture.get().trim()
                         if (exitCode == 0) {
+				if (stderr.isNotEmpty()) {
+					logger.debug { "Git stderr (success): $stderr" }
+				}
                                 logger.debug { "Successfully synced $url" }
                         } else {
-                                throw IllegalStateException("Unable to sync $url into $repo: exit $exitCode")
+				if (stderr.isNotEmpty()) {
+					logger.warn("Git stderr: $stderr")
+				}
+                                throw IllegalStateException("Unable to sync $url into $repo: exit $exitCode\n$stderr".trimEnd())
                         }
                 } catch (t: Throwable) {
                         if (!repoExistsBeforeCommand) {
