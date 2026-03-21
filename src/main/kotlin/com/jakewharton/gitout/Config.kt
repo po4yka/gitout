@@ -500,8 +500,6 @@ internal class Config(
                 val notifyOnlyRepos: List<String> = emptyList(),
                 @kotlinx.serialization.SerialName("notify_ignore_repos")
                 val notifyIgnoreRepos: List<String> = emptyList(),
-                @kotlinx.serialization.SerialName("error_keywords")
-                val errorKeywords: Map<String, List<String>> = emptyMap(),
         )
 }
 
