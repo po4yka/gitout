@@ -791,7 +791,7 @@ internal class TelegramNotificationService(
 		// Notify about archived repositories
 		if (changes.archived.isNotEmpty()) {
 			val message = buildString {
-				appendLine("<b>📦 Repositories Archived</b>")
+				appendLine("<b>Repositories Archived</b>")
 				appendLine()
 				appendLine("${changes.archived.size} repository(ies) have been archived:")
 				appendLine()
@@ -810,7 +810,7 @@ internal class TelegramNotificationService(
 		// Notify about unarchived repositories
 		if (changes.unarchived.isNotEmpty()) {
 			val message = buildString {
-				appendLine("<b>📂 Repositories Unarchived</b>")
+				appendLine("<b>Repositories Unarchived</b>")
 				appendLine()
 				appendLine("${changes.unarchived.size} repository(ies) have been unarchived:")
 				appendLine()
@@ -829,7 +829,7 @@ internal class TelegramNotificationService(
 		// Notify about deleted/inaccessible repositories
 		if (changes.deleted.isNotEmpty()) {
 			val message = buildString {
-				appendLine("<b>🗑️ Repositories Deleted/Inaccessible</b>")
+				appendLine("<b>Repositories Deleted/Inaccessible</b>")
 				appendLine()
 				appendLine("${changes.deleted.size} repository(ies) are no longer accessible:")
 				appendLine()
@@ -850,7 +850,7 @@ internal class TelegramNotificationService(
 		// Notify about visibility changes
 		if (changes.visibilityChanged.isNotEmpty()) {
 			val message = buildString {
-				appendLine("<b>👁️ Repository Visibility Changed</b>")
+				appendLine("<b>Repository Visibility Changed</b>")
 				appendLine()
 				appendLine("${changes.visibilityChanged.size} repository(ies) changed visibility:")
 				appendLine()
@@ -875,19 +875,19 @@ internal class TelegramNotificationService(
 		if (!isEnabled() || !changes.hasChanges()) return
 
 		val message = buildString {
-			appendLine("<b>📊 Repository Changes Detected</b>")
+			appendLine("<b>Repository Changes Detected</b>")
 			appendLine()
 			if (changes.archived.isNotEmpty()) {
-				appendLine("📦 Archived: ${changes.archived.size}")
+				appendLine("Archived: ${changes.archived.size}")
 			}
 			if (changes.unarchived.isNotEmpty()) {
-				appendLine("📂 Unarchived: ${changes.unarchived.size}")
+				appendLine("Unarchived: ${changes.unarchived.size}")
 			}
 			if (changes.deleted.isNotEmpty()) {
-				appendLine("🗑️ Deleted/Inaccessible: ${changes.deleted.size}")
+				appendLine("Deleted/Inaccessible: ${changes.deleted.size}")
 			}
 			if (changes.visibilityChanged.isNotEmpty()) {
-				appendLine("👁️ Visibility Changed: ${changes.visibilityChanged.size}")
+				appendLine("Visibility Changed: ${changes.visibilityChanged.size}")
 			}
 			appendLine()
 			appendLine("<b>Total Changes:</b> ${changes.totalChanges()}")
