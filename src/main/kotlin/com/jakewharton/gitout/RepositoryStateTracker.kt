@@ -210,8 +210,9 @@ internal class RepositoryChanges(
 		archived.isNotEmpty() ||
 			unarchived.isNotEmpty() ||
 			deleted.isNotEmpty() ||
-			visibilityChanged.isNotEmpty()
+			visibilityChanged.isNotEmpty() ||
+			newRepos.isNotEmpty()
 
 	fun totalChanges(): Int =
-		archived.size + unarchived.size + deleted.size + visibilityChanged.size
+		archived.size + unarchived.size + deleted.size + visibilityChanged.size + newRepos.size
 }
