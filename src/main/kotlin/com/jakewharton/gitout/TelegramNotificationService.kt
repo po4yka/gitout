@@ -6,6 +6,8 @@ import com.github.kotlintelegrambot.dispatch
 import com.github.kotlintelegrambot.dispatcher.command
 import com.github.kotlintelegrambot.entities.BotCommand
 import com.github.kotlintelegrambot.entities.ChatId
+import com.jakewharton.gitout.ErrorCategory.Companion.displayName
+import com.jakewharton.gitout.ErrorCategory.Companion.suggestion
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.time.Duration
@@ -13,6 +15,17 @@ import java.time.Instant
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.io.path.exists
 import kotlin.io.path.readText
+
+/**
+ * Summary of a single failed repository sync, passed to [TelegramNotificationService.notifyErrors].
+ */
+internal data class FailedRepoSummary(
+	val name: String,
+	val url: String,
+	val errorMessage: String,
+	val category: ErrorCategory,
+	val retryAttempts: Int,
+)
 
 /**
  * Service for sending Telegram notifications about gitout sync activities.
@@ -57,15 +70,13 @@ internal class TelegramNotificationService(
 	private val syncStats = AtomicReference(SyncStats())
 
 	// Failed repositories tracked separately (less frequently accessed)
-	private val lastFailedRepositories = AtomicReference<Map<String, String>>(emptyMap())
+	private val lastFailedRepositories = AtomicReference<List<FailedRepoSummary>>(emptyList())
 	private val botStartedAt = Instant.now()
 
         private val progressStepPercent = config
                 ?.notifyProgressStepPercent
                 ?.coerceAtLeast(1)
                 ?: DEFAULT_TELEGRAM_PROGRESS_STEP_PERCENT
-
-        private val errorKeywordMatchers: Map<ErrorCategory, List<String>> = buildErrorKeywordMatchers()
 
         private val chatId = config
                 ?.chatId
@@ -188,9 +199,10 @@ internal class TelegramNotificationService(
 									buildString {
 										appendLine("<b>Recent Repository Failures</b>")
 										appendLine()
-										failures.entries.take(10).forEach { (repo, error) ->
-											appendLine("- <code>$repo</code>")
-											appendLine("  ${error.trim()}")
+										failures.take(10).forEach { summary ->
+											val attempts = if (summary.retryAttempts > 1) " (${summary.retryAttempts} attempts)" else ""
+											appendLine("- <code>${summary.name}</code> [${summary.category.displayName}]$attempts")
+											appendLine("  ${summary.errorMessage.trim()}")
 											appendLine()
 										}
 										if (failures.size > 10) {
@@ -451,36 +463,45 @@ internal class TelegramNotificationService(
 	}
 
 	/**
-	 * Sends a notification about synchronization errors.
+	 * Sends a notification about synchronization errors, grouped by error category.
 	 *
-	 * @param failedRepos Map of repository names to error messages
+	 * @param failedResults List of failed repository summaries with category and attempt info
 	 */
-	internal fun notifyErrors(failedRepos: Map<String, String>) {
-		if (!isEnabled() || config?.notifyErrors != true || failedRepos.isEmpty()) return
+	internal fun notifyErrors(failedResults: List<FailedRepoSummary>) {
+		if (!isEnabled() || config?.notifyErrors != true || failedResults.isEmpty()) return
 
-		lastFailedRepositories.set(failedRepos.toMap())
+		lastFailedRepositories.set(failedResults)
+
+		val byCategory = failedResults.groupBy { it.category }
 
 		val message = buildString {
 			appendLine("<b>Sync Errors</b>")
 			appendLine()
-			appendLine("Failed repositories: ${failedRepos.size}")
+			appendLine("Failed repositories: ${failedResults.size}")
 			appendLine()
 
-			// Limit to first 5 errors to avoid message size limits
-			failedRepos.entries.take(5).forEach { (repo, error) ->
-				appendLine("- <code>$repo</code>")
-				// Truncate error message if too long
-				val truncatedError = if (error.length > 100) {
-					error.take(97) + "..."
-				} else {
-					error
+			// Group by category, show up to 5 repos total
+			var shown = 0
+			byCategory.entries
+				.sortedBy { it.key.displayName }
+				.forEach { (category, repos) ->
+					if (shown >= 5) return@forEach
+					appendLine("<b>${category.displayName} (${repos.size}):</b>")
+					repos.forEach { summary ->
+						if (shown >= 5) return@forEach
+						// Extract last line of error (the actual git message) for brevity
+						val shortError = summary.errorMessage.trimEnd().lines().lastOrNull { it.isNotBlank() }
+							?.trim()?.take(80) ?: summary.errorMessage.take(80)
+						val attempts = if (summary.retryAttempts > 1) " ×${summary.retryAttempts}" else ""
+						appendLine("- <code>${summary.name}</code>$attempts")
+						appendLine("  $shortError")
+						shown++
+					}
+					appendLine()
 				}
-				appendLine("  $truncatedError")
-				appendLine()
-			}
 
-			if (failedRepos.size > 5) {
-				appendLine("... and ${failedRepos.size - 5} more errors")
+			if (failedResults.size > 5) {
+				appendLine("... and ${failedResults.size - 5} more errors")
 			}
 		}
 
@@ -493,14 +514,18 @@ internal class TelegramNotificationService(
 	 * @param repoName Name of the repository that failed
 	 * @param repoUrl URL of the repository
 	 * @param errorMessage The error message describing what went wrong
+	 * @param category Pre-classified error category from the sync engine
+	 * @param retryAttempts Number of attempts made before giving up
 	 */
-	internal fun notifySyncError(repoName: String, repoUrl: String, errorMessage: String) {
+	internal fun notifySyncError(
+		repoName: String,
+		repoUrl: String,
+		errorMessage: String,
+		category: ErrorCategory,
+		retryAttempts: Int = 1,
+	) {
 		if (!isEnabled() || config?.notifyErrors != true) return
 		if (!shouldNotifyForRepository(repoName)) return
-
-		// Categorize the error and get suggestions
-		val errorCategory = categorizeError(errorMessage)
-		val suggestion = getSuggestion(errorCategory)
 
 		// Truncate error message if too long
 		val truncatedError = if (errorMessage.length > 200) {
@@ -509,16 +534,7 @@ internal class TelegramNotificationService(
 			errorMessage
 		}
 
-		// Map error category to label
-		val categoryLabel = when (errorCategory) {
-			ErrorCategory.NETWORK -> "Network Error"
-			ErrorCategory.AUTHENTICATION -> "Authentication Error"
-			ErrorCategory.GIT_ERROR -> "Git Error"
-			ErrorCategory.DISK_SPACE -> "Disk Space Error"
-			ErrorCategory.RATE_LIMITING -> "Rate Limiting"
-			ErrorCategory.SSL_TLS -> "SSL/TLS Error"
-			ErrorCategory.UNKNOWN -> "Unknown Error"
-		}
+		val attemptsLine = if (retryAttempts > 1) "<b>Attempts:</b> $retryAttempts\n" else ""
 
 		val message = buildString {
 			appendLine("<b>Repository Sync Failed</b>")
@@ -526,13 +542,14 @@ internal class TelegramNotificationService(
 			appendLine("<b>Repository:</b> <code>$repoName</code>")
 			appendLine("<b>URL:</b> $repoUrl")
 			appendLine()
-			appendLine("<b>Error Type:</b> $categoryLabel")
+			appendLine("<b>Error Type:</b> ${category.displayName}")
+			if (attemptsLine.isNotEmpty()) append(attemptsLine)
 			appendLine()
 			appendLine("<b>Error:</b>")
 			appendLine("<code>$truncatedError</code>")
 			appendLine()
 			appendLine("<b>Suggestion:</b>")
-			appendLine("<i>$suggestion</i>")
+			appendLine("<i>${category.suggestion}</i>")
 			appendLine()
 			appendLine("Timestamp: ${getCurrentTimestamp()}")
 		}
@@ -540,7 +557,7 @@ internal class TelegramNotificationService(
 		sendMessage(message, "repo failure")
 
 		lastFailedRepositories.getAndUpdate { current ->
-			current + (repoName to truncatedError)
+			current + FailedRepoSummary(repoName, repoUrl, truncatedError, category, retryAttempts)
 		}
 	}
 
@@ -690,35 +707,6 @@ internal class TelegramNotificationService(
                 }
         }
 
-	/**
-	 * Categories of errors that can occur during repository synchronization.
-	 */
-	private enum class ErrorCategory {
-		NETWORK,
-		AUTHENTICATION,
-		GIT_ERROR,
-		DISK_SPACE,
-		RATE_LIMITING,
-		SSL_TLS,
-		UNKNOWN
-	}
-
-	/**
-	 * Categorizes an error based on its message content.
-	 */
-        private fun categorizeError(errorMessage: String): ErrorCategory {
-                val lowerMessage = errorMessage.lowercase()
-
-                errorKeywordMatchers.forEach { (category, keywords) ->
-                        if (keywords.any { lowerMessage.contains(it) }) {
-                                return category
-                        }
-                }
-
-                logger.debug { "Uncategorized error message for Telegram notifications: ${errorMessage.trim()}" }
-                return ErrorCategory.UNKNOWN
-        }
-
         private fun resolveChatId(chatValue: String): ChatId? {
                 chatValue.toLongOrNull()?.let { return ChatId.fromId(it) }
 
@@ -729,102 +717,6 @@ internal class TelegramNotificationService(
                 logger.warn("Telegram chat_id '$chatValue' is not valid. Notifications disabled.")
                 return null
         }
-
-        private fun buildErrorKeywordMatchers(): Map<ErrorCategory, List<String>> {
-                val defaults = mapOf(
-                        ErrorCategory.NETWORK to listOf(
-                                "could not resolve host",
-                                "connection timed out",
-                                "connection refused",
-                                "network is unreachable",
-                                "no route to host",
-                                "temporary failure in name resolution",
-                                "connection reset",
-                                "unexpected disconnect",
-                                "recv failure",
-                                "couldn't connect",
-                                "name or service not known",
-                                "early eof",
-                                "error categories: network_error",
-                                "error categories: http2_error",
-                                "error categories: timeout",
-                        ),
-                        ErrorCategory.AUTHENTICATION to listOf(
-                                "authentication failed",
-                                "invalid username or password",
-                                "permission denied",
-                                "unauthorized",
-                                "403 forbidden",
-                                "could not read username",
-                                "invalid credentials",
-                                "bad credentials",
-                                "access denied",
-                                "error categories: auth_error",
-                        ),
-                        ErrorCategory.GIT_ERROR to listOf(
-                                "not a git repository",
-                                "repository not found",
-                                "404 not found",
-                                "fatal: unable to access",
-                                "remote: repository not found",
-                                "does not appear to be a git",
-                                "repository is empty",
-                                "nonexistent ref",
-                                "error categories: repository_error",
-                        ),
-                        ErrorCategory.DISK_SPACE to listOf(
-                                "no space left on device",
-                                "disk quota exceeded",
-                                "insufficient storage",
-                                "out of memory",
-                                "cannot allocate",
-                                "error categories: storage_error",
-                        ),
-                        ErrorCategory.RATE_LIMITING to listOf(
-                                "rate limit",
-                                "api limit",
-                                "too many requests",
-                                "retry after",
-                                "429",
-                        ),
-                        ErrorCategory.SSL_TLS to listOf(
-                                "ssl",
-                                "tls",
-                                "certificate",
-                                "handshake failure",
-                                "handshake failed",
-                                "error categories: ssl_error",
-                        ),
-                )
-
-                val merged = defaults.mapValues { it.value.toMutableSet() }.toMutableMap()
-
-                config?.errorKeywords?.forEach { (categoryName, keywords) ->
-                        val category = runCatching { ErrorCategory.valueOf(categoryName.uppercase()) }.getOrNull()
-                        if (category == null) {
-                                logger.warn("Unknown Telegram error category override: '$categoryName'")
-                        } else {
-                                merged.getOrPut(category) { mutableSetOf() }.addAll(keywords.map(String::lowercase))
-                        }
-                }
-
-                return merged.mapValues { (_, values) -> values.toList() }
-        }
-
-        /**
-         * Provides actionable recovery suggestions based on error category.
-         */
-        private fun getSuggestion(category: ErrorCategory): String {
-                return when (category) {
-			ErrorCategory.NETWORK -> "Check your internet connection and DNS settings. Verify the repository URL is accessible."
-			ErrorCategory.AUTHENTICATION -> "Verify your credentials and token permissions. Ensure the token hasn't expired."
-			ErrorCategory.GIT_ERROR -> "Verify the repository exists and the URL is correct. Check if the repository has been deleted or moved."
-			ErrorCategory.DISK_SPACE -> "Free up disk space on your system. Consider archiving or removing old backups."
-			ErrorCategory.RATE_LIMITING -> "Wait before retrying. Consider reducing sync frequency or using authentication to increase rate limits."
-			ErrorCategory.SSL_TLS -> "Check SSL certificate configuration. Verify system certificates are up to date or configure cert_file in config."
-			ErrorCategory.UNKNOWN -> "Check the error message for details. Verify your configuration and network connectivity."
-		}
-	}
 
 	/**
 	 * Sends a message to the configured chat.

@@ -2,6 +2,7 @@ package com.jakewharton.gitout
 
 import assertk.assertThat
 import assertk.assertions.isEqualTo
+import assertk.assertions.isGreaterThan
 import assertk.assertions.isNotNull
 import assertk.assertions.message
 import kotlinx.coroutines.test.runTest
@@ -159,5 +160,75 @@ class RetryPolicyTest {
 		}
 
 		assertThat(recordedAttempts).isEqualTo(listOf(1, 2, 3))
+	}
+
+	@Test
+	fun `exhausted retries throws SyncFailureException`() = runTest {
+		val policy = RetryPolicy(maxAttempts = 3, baseDelayMs = 10L, logger = quietLogger)
+
+		val exception = try {
+			policy.execute("failing operation") { throw RuntimeException("Persistent failure") }
+			null
+		} catch (e: SyncFailureException) {
+			e
+		} catch (e: IllegalStateException) {
+			null // should not reach here
+		}
+
+		assertThat(exception).isNotNull()
+	}
+
+	@Test
+	fun `SyncFailureException records attempt count`() = runTest {
+		val policy = RetryPolicy(maxAttempts = 3, baseDelayMs = 10L, logger = quietLogger)
+
+		val exception = try {
+			policy.execute("failing operation") { throw RuntimeException("Persistent failure") }
+			null
+		} catch (e: SyncFailureException) {
+			e
+		}
+
+		assertThat(exception).isNotNull()
+		assertThat(exception!!.attemptCount).isEqualTo(3)
+	}
+
+	@Test
+	fun `SyncFailureException records error categories`() = runTest {
+		val policy = RetryPolicy(maxAttempts = 2, baseDelayMs = 10L, logger = quietLogger)
+
+		val exception = try {
+			policy.execute("failing operation") {
+				throw RuntimeException("connection reset by peer")
+			}
+			null
+		} catch (e: SyncFailureException) {
+			e
+		}
+
+		assertThat(exception).isNotNull()
+		assertThat(exception!!.errorCategories.size).isGreaterThan(0)
+		assertThat(exception.errorCategories.first()).isEqualTo(ErrorCategory.NETWORK_ERROR)
+	}
+
+	@Test
+	fun `non-retryable error stops immediately and throws SyncFailureException`() = runTest {
+		val policy = RetryPolicy(maxAttempts = 6, baseDelayMs = 10L, logger = quietLogger)
+		var attempts = 0
+
+		val exception = try {
+			policy.execute("auth failing") { context ->
+				attempts = context.attempt
+				throw RuntimeException("couldn't find remote ref refs/heads/main")
+			}
+			null
+		} catch (e: SyncFailureException) {
+			e
+		}
+
+		// REPOSITORY_ERROR is non-retryable - should stop after 1 attempt
+		assertThat(attempts).isEqualTo(1)
+		assertThat(exception).isNotNull()
+		assertThat(exception!!.errorCategories.first()).isEqualTo(ErrorCategory.REPOSITORY_ERROR)
 	}
 }

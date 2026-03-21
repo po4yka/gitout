@@ -6,6 +6,21 @@ import com.jakewharton.gitout.ErrorCategory.Companion.shouldUseHttp1Fallback
 import kotlinx.coroutines.delay
 
 /**
+ * Thrown when a sync operation fails after all retry attempts are exhausted.
+ *
+ * Extends [IllegalStateException] for backward compatibility with existing catch blocks.
+ *
+ * @property errorCategories All error categories encountered across all attempts.
+ * @property attemptCount Total number of attempts made (including the initial attempt).
+ */
+internal class SyncFailureException(
+	message: String,
+	val errorCategories: List<ErrorCategory>,
+	val attemptCount: Int,
+	cause: Throwable? = null,
+) : IllegalStateException(message, cause)
+
+/**
  * A configurable retry policy for handling transient failures in operations.
  *
  * This class provides a reusable mechanism to retry operations that may fail transiently,
@@ -213,9 +228,11 @@ internal class RetryPolicy(
 		} else {
 			""
 		}
-		throw IllegalStateException(
-			"Failed to complete $description after $maxAttempts attempts$categoryInfo",
-			lastException
+		throw SyncFailureException(
+			message = "Failed to complete $description after $maxAttempts attempts$categoryInfo",
+			errorCategories = errorCategories.toList(),
+			attemptCount = maxAttempts,
+			cause = lastException,
 		)
 	}
 

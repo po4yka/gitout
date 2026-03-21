@@ -35,7 +35,8 @@ internal enum class ErrorCategory {
 	 * Examples:
 	 * - "Authentication failed"
 	 * - "Permission denied"
-	 * - "Repository not found" (could be private)
+	 * - "403 Forbidden"
+	 * - "Repository not found" (GitHub returns 404 for private repos with wrong auth)
 	 */
 	AUTH_ERROR,
 
@@ -44,6 +45,7 @@ internal enum class ErrorCategory {
 	 * Examples:
 	 * - "Repository is empty"
 	 * - "Remote HEAD refers to nonexistent ref"
+	 * - "couldn't find remote ref refs/heads/main"
 	 */
 	REPOSITORY_ERROR,
 
@@ -62,6 +64,14 @@ internal enum class ErrorCategory {
 	 * - "unable to get local issuer certificate"
 	 */
 	SSL_ERROR,
+
+	/**
+	 * GitHub/remote API rate limiting - should retry with longer delay.
+	 * Examples:
+	 * - "rate limit exceeded"
+	 * - "429 Too Many Requests"
+	 */
+	RATE_LIMIT,
 
 	/**
 	 * Unknown or unclassified errors - use default retry strategy.
@@ -86,7 +96,12 @@ internal enum class ErrorCategory {
 				return HTTP2_ERROR
 			}
 
-			// Timeout errors
+			// Connection timeout is a network error - check before generic timeout
+			if (lowerMessage.contains("connection timed out")) {
+				return NETWORK_ERROR
+			}
+
+			// Timeout errors (generic process/operation timeout)
 			if (lowerMessage.contains("timeout") ||
 				lowerMessage.contains("timed out")) {
 				return TIMEOUT
@@ -95,14 +110,22 @@ internal enum class ErrorCategory {
 			// Network errors
 			if (lowerMessage.contains("connection reset") ||
 				lowerMessage.contains("connection refused") ||
-				lowerMessage.contains("connection timed out") ||
 				lowerMessage.contains("network is unreachable") ||
 				lowerMessage.contains("host is unreachable") ||
 				lowerMessage.contains("recv failure") ||
 				lowerMessage.contains("couldn't connect") ||
 				lowerMessage.contains("name or service not known") ||
-				lowerMessage.contains("temporary failure in name resolution")) {
+				lowerMessage.contains("temporary failure in name resolution") ||
+				lowerMessage.contains("could not resolve host")) {
 				return NETWORK_ERROR
+			}
+
+			// Rate limiting
+			if (lowerMessage.contains("rate limit") ||
+				lowerMessage.contains("too many requests") ||
+				lowerMessage.contains("retry after") ||
+				lowerMessage.contains("429")) {
+				return RATE_LIMIT
 			}
 
 			// Authentication errors
@@ -113,17 +136,21 @@ internal enum class ErrorCategory {
 				lowerMessage.contains("bad credentials") ||
 				lowerMessage.contains("could not read username") ||
 				lowerMessage.contains("terminal prompts disabled") ||
-				(lowerMessage.contains("repository not found") && !lowerMessage.contains("clone"))) {
+				lowerMessage.contains("403") ||
+				lowerMessage.contains("repository not found")) {
 				return AUTH_ERROR
 			}
 
-			// SSL/TLS errors
+			// SSL/TLS errors - use specific patterns to avoid false positives from repo names
 			if (lowerMessage.contains("ssl certificate") ||
 				lowerMessage.contains("certificate problem") ||
 				lowerMessage.contains("certificate verify") ||
 				lowerMessage.contains("local issuer certificate") ||
 				lowerMessage.contains("ssl_error") ||
-				lowerMessage.contains("tls")) {
+				lowerMessage.contains("ssl: ") ||
+				lowerMessage.contains("tlsv1") ||
+				lowerMessage.contains("tls handshake") ||
+				lowerMessage.contains("tls alert")) {
 				return SSL_ERROR
 			}
 
@@ -135,11 +162,15 @@ internal enum class ErrorCategory {
 				return STORAGE_ERROR
 			}
 
-			// Repository errors
+			// Repository errors (non-retryable - requires manual intervention or config change)
 			if (lowerMessage.contains("repository is empty") ||
 				lowerMessage.contains("remote head") ||
 				lowerMessage.contains("nonexistent ref") ||
 				lowerMessage.contains("invalid ref") ||
+				lowerMessage.contains("couldn't find remote ref") ||
+				lowerMessage.contains("remote ref does not exist") ||
+				lowerMessage.contains("bad object") ||
+				lowerMessage.contains("is corrupt") ||
 				lowerMessage.contains("does not appear to be a git") ||
 				lowerMessage.contains("fatal: unable to access") ||
 				lowerMessage.contains("404 not found")) {
@@ -173,6 +204,7 @@ internal enum class ErrorCategory {
 			HTTP2_ERROR -> true
 			NETWORK_ERROR -> true
 			TIMEOUT -> true
+			RATE_LIMIT -> true
 			UNKNOWN -> true
 			AUTH_ERROR -> false
 			STORAGE_ERROR -> false
@@ -187,7 +219,38 @@ internal enum class ErrorCategory {
 			HTTP2_ERROR -> 1.0 // Normal delay, just need protocol change
 			NETWORK_ERROR -> 2.0 // Longer delay for network issues
 			TIMEOUT -> 1.5 // Slightly longer delay
+			RATE_LIMIT -> 3.0 // Much longer delay to respect rate limits
 			else -> 1.0
+		}
+
+		/**
+		 * Human-readable display name for use in notifications.
+		 */
+		val ErrorCategory.displayName: String get() = when (this) {
+			HTTP2_ERROR -> "HTTP/2 Error"
+			NETWORK_ERROR -> "Network Error"
+			TIMEOUT -> "Timeout"
+			AUTH_ERROR -> "Authentication Error"
+			REPOSITORY_ERROR -> "Git Error"
+			STORAGE_ERROR -> "Disk Space Error"
+			SSL_ERROR -> "SSL/TLS Error"
+			RATE_LIMIT -> "Rate Limiting"
+			UNKNOWN -> "Unknown Error"
+		}
+
+		/**
+		 * Actionable recovery suggestion for each error category.
+		 */
+		val ErrorCategory.suggestion: String get() = when (this) {
+			HTTP2_ERROR -> "Retry with HTTP/1.1 fallback is automatic. If persistent, check network proxy settings."
+			NETWORK_ERROR -> "Check your internet connection and DNS settings. Verify the repository URL is accessible."
+			TIMEOUT -> "Operation timed out. The repository may be large or the connection slow. Consider increasing timeout."
+			AUTH_ERROR -> "Verify your credentials and token permissions. Ensure the token hasn't expired."
+			REPOSITORY_ERROR -> "Verify the repository exists and the URL is correct. Check if it has been deleted, moved, or emptied."
+			STORAGE_ERROR -> "Free up disk space on your system. Consider archiving or removing old backups."
+			SSL_ERROR -> "Check SSL certificate configuration. Verify system certificates are up to date or configure cert_file in config."
+			RATE_LIMIT -> "Wait before retrying. Consider reducing sync frequency or using authentication to increase rate limits."
+			UNKNOWN -> "Check the error message for details. Verify your configuration and network connectivity."
 		}
 	}
 }

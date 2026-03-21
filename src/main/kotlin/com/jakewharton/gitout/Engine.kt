@@ -534,16 +534,20 @@ internal class Engine(
 							val errorMsg = e.message ?: "Unknown error"
 							logger.warn("Failed sync: ${task.url}: $errorMsg")
 
+							// Extract structured error info from SyncFailureException, fall back to classify
+							val errorCategory = (e as? SyncFailureException)?.errorCategories?.lastOrNull()
+								?: ErrorCategory.classify(errorMsg)
+							val retryAttempts = (e as? SyncFailureException)?.attemptCount ?: 1
+
 							// Record failure in failure tracker
 							if (!dryRun) {
-								val errorCategory = ErrorCategory.classify(errorMsg)
 								failureTracker?.recordFailure(task.name, errorMsg, errorCategory)
 							}
 
 							// Send immediate error notification
                                                         if (!dryRun) {
                                                                 telegramService.safeNotify("sync error") {
-                                                                        notifySyncError(task.name, task.url, errorMsg)
+                                                                        notifySyncError(task.name, task.url, errorMsg, errorCategory, retryAttempts)
                                                                 }
                                                         }
 
@@ -584,16 +588,23 @@ internal class Engine(
 
 		if (failed > 0) {
 			logger.warn("Failed repositories:")
-			val failedRepos = mutableMapOf<String, String>()
-			results.filter { !it.success }.forEach { result ->
-				val errorMsg = result.error?.message ?: "Unknown error"
+			val failedResults = results.filter { !it.success }.map { result ->
+				val err = result.error
+				val errorMsg = err?.message ?: "Unknown error"
 				logger.warn("  - ${result.task.name} (${result.task.url}): $errorMsg")
-				failedRepos[result.task.name] = errorMsg
+				FailedRepoSummary(
+					name = result.task.name,
+					url = result.task.url,
+					errorMessage = errorMsg,
+					category = (err as? SyncFailureException)?.errorCategories?.lastOrNull()
+						?: ErrorCategory.classify(errorMsg),
+					retryAttempts = (err as? SyncFailureException)?.attemptCount ?: 1,
+				)
 			}
 
 			// Send Telegram notification about errors
                         telegramService.safeNotify("sync errors summary") {
-                                notifyErrors(failedRepos)
+                                notifyErrors(failedResults)
                         }
 
 			val errorMessage = "$failed out of ${tasks.size} repositories failed to synchronize"
