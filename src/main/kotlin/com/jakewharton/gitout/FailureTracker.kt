@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.nio.file.Path
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
@@ -23,7 +24,7 @@ internal class FailureTracker(
 		ignoreUnknownKeys = true
 	}
 
-	private var state: FailureState = loadState()
+	private val state: AtomicReference<FailureState> = AtomicReference(loadState())
 
 	/**
 	 * Loads failure state from disk or creates new empty state.
@@ -53,7 +54,7 @@ internal class FailureTracker(
 		if (!config.enabled) return
 
 		try {
-			val content = json.encodeToString(state)
+			val content = json.encodeToString(state.get())
 			stateFile.writeText(content)
 			logger.debug { "Saved failure state to $stateFile" }
 		} catch (e: Exception) {
@@ -68,15 +69,20 @@ internal class FailureTracker(
 	fun recordSuccess(repoName: String) {
 		if (!config.enabled) return
 
-		val existing = state.repositories[repoName]
-		if (existing != null) {
-			// Keep the record but reset consecutive failures
-			state = state.copy(
-				repositories = state.repositories + (repoName to existing.copy(
-					consecutiveFailures = 0,
-					lastSuccessTimestamp = System.currentTimeMillis(),
-				))
-			)
+		val updated = state.updateAndGet { current ->
+			val existing = current.repositories[repoName]
+			if (existing != null) {
+				current.copy(
+					repositories = current.repositories + (repoName to existing.copy(
+						consecutiveFailures = 0,
+						lastSuccessTimestamp = System.currentTimeMillis(),
+					))
+				)
+			} else {
+				current
+			}
+		}
+		if (updated.repositories[repoName]?.consecutiveFailures == 0) {
 			logger.debug { "Reset failure counter for $repoName after successful sync" }
 		}
 	}
@@ -87,35 +93,37 @@ internal class FailureTracker(
 	fun recordFailure(repoName: String, errorMessage: String, errorCategory: ErrorCategory) {
 		if (!config.enabled) return
 
-		val existing = state.repositories[repoName]
 		val now = System.currentTimeMillis()
 
-		val updatedRecord = if (existing != null) {
-			existing.copy(
-				consecutiveFailures = existing.consecutiveFailures + 1,
-				totalFailures = existing.totalFailures + 1,
-				lastFailureTimestamp = now,
-				lastErrorMessage = errorMessage,
-				lastErrorCategory = errorCategory.name,
-				errorHistory = (existing.errorHistory + errorCategory.name).takeLast(10),
-			)
-		} else {
-			RepositoryFailureRecord(
-				name = repoName,
-				consecutiveFailures = 1,
-				totalFailures = 1,
-				lastFailureTimestamp = now,
-				lastSuccessTimestamp = null,
-				lastErrorMessage = errorMessage,
-				lastErrorCategory = errorCategory.name,
-				errorHistory = listOf(errorCategory.name),
+		val newState = state.updateAndGet { current ->
+			val existing = current.repositories[repoName]
+			val updatedRecord = if (existing != null) {
+				existing.copy(
+					consecutiveFailures = existing.consecutiveFailures + 1,
+					totalFailures = existing.totalFailures + 1,
+					lastFailureTimestamp = now,
+					lastErrorMessage = errorMessage,
+					lastErrorCategory = errorCategory.name,
+					errorHistory = (existing.errorHistory + errorCategory.name).takeLast(10),
+				)
+			} else {
+				RepositoryFailureRecord(
+					name = repoName,
+					consecutiveFailures = 1,
+					totalFailures = 1,
+					lastFailureTimestamp = now,
+					lastSuccessTimestamp = null,
+					lastErrorMessage = errorMessage,
+					lastErrorCategory = errorCategory.name,
+					errorHistory = listOf(errorCategory.name),
+				)
+			}
+			current.copy(
+				repositories = current.repositories + (repoName to updatedRecord)
 			)
 		}
 
-		state = state.copy(
-			repositories = state.repositories + (repoName to updatedRecord)
-		)
-
+		val updatedRecord = newState.repositories.getValue(repoName)
 		if (updatedRecord.consecutiveFailures >= config.maxConsecutiveFailures) {
 			logger.warn("Repository $repoName has failed ${updatedRecord.consecutiveFailures} times consecutively")
 		}
@@ -127,7 +135,7 @@ internal class FailureTracker(
 	fun shouldSkip(repoName: String): Boolean {
 		if (!config.enabled || !config.autoSkipFailing) return false
 
-		val record = state.repositories[repoName] ?: return false
+		val record = state.get().repositories[repoName] ?: return false
 
 		// Check if we've exceeded max consecutive failures
 		if (record.consecutiveFailures < config.maxConsecutiveFailures) return false
@@ -150,21 +158,21 @@ internal class FailureTracker(
 	 * Gets the failure record for a repository.
 	 */
 	fun getFailureRecord(repoName: String): RepositoryFailureRecord? {
-		return state.repositories[repoName]
+		return state.get().repositories[repoName]
 	}
 
 	/**
 	 * Gets all repositories that have failure records.
 	 */
 	fun getFailingRepositories(): List<RepositoryFailureRecord> {
-		return state.repositories.values.filter { it.consecutiveFailures > 0 }
+		return state.get().repositories.values.filter { it.consecutiveFailures > 0 }
 	}
 
 	/**
 	 * Determines the recommended clone strategy based on failure history.
 	 */
 	fun getRecommendedStrategy(repoName: String, repoSizeKb: Long?, largeRepoConfig: Config.LargeRepoConfig): CloneStrategy {
-		val record = state.repositories[repoName]
+		val record = state.get().repositories[repoName]
 		val isLargeRepo = repoSizeKb != null && repoSizeKb >= largeRepoConfig.sizeThresholdKb
 		val isVeryLargeRepo = repoSizeKb != null && repoSizeKb >= largeRepoConfig.shallowCloneThresholdKb
 
@@ -193,21 +201,23 @@ internal class FailureTracker(
 		if (!config.enabled) return
 
 		val now = System.currentTimeMillis()
-		val cleaned = state.repositories.filter { (name, record) ->
-			// Keep if repository is still active
-			if (name in activeRepos) return@filter true
-			// Keep if has recent activity
-			val lastActivity = maxOf(
-				record.lastFailureTimestamp ?: 0,
-				record.lastSuccessTimestamp ?: 0
-			)
-			now - lastActivity < maxAgeMs
+		var removed = 0
+		state.updateAndGet { current ->
+			val cleaned = current.repositories.filter { (name, record) ->
+				// Keep if repository is still active
+				if (name in activeRepos) return@filter true
+				// Keep if has recent activity
+				val lastActivity = maxOf(
+					record.lastFailureTimestamp ?: 0,
+					record.lastSuccessTimestamp ?: 0
+				)
+				now - lastActivity < maxAgeMs
+			}
+			removed = current.repositories.size - cleaned.size
+			if (removed > 0) current.copy(repositories = cleaned) else current
 		}
-
-		if (cleaned.size != state.repositories.size) {
-			val removed = state.repositories.size - cleaned.size
+		if (removed > 0) {
 			logger.info { "Cleaned up $removed stale failure records" }
-			state = state.copy(repositories = cleaned)
 		}
 	}
 }
