@@ -42,7 +42,7 @@ internal class SearchIndexService(
     }
 
     private suspend fun indexSingleRepo(repo: RepositoryMetadata, backupDir: Path) {
-        val bareRepoPath = backupDir.resolve("${repo.name}.git")
+        val bareRepoPath = backupDir.resolve(repo.name)
         val readmeContent = withContext(Dispatchers.IO) {
             readmeExtractor.extract(bareRepoPath)
         }
