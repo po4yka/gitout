@@ -1,6 +1,7 @@
 /.gradle
 /.idea
 /.kotlin
+/.claude/worktrees/
 /build
 
 # Backup files
