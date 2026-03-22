@@ -79,6 +79,8 @@ internal class GitHub(
 								repoType = "owned",
 								diskUsageKb = node.diskUsage?.toLong(),
 								defaultBranch = node.defaultBranchRef?.name,
+								topics = node.repositoryTopics.nodes?.mapNotNull { it?.topic?.name } ?: emptyList(),
+								language = node.primaryLanguage?.name,
 							)
 							ownedAfter = Optional.present(ownedEdge.cursor)
 						} else {
@@ -102,6 +104,8 @@ internal class GitHub(
 									repoType = "starred",
 									diskUsageKb = node.diskUsage?.toLong(),
 									defaultBranch = node.defaultBranchRef?.name,
+									topics = node.repositoryTopics.nodes?.mapNotNull { it?.topic?.name } ?: emptyList(),
+									language = node.primaryLanguage?.name,
 								)
 							}
 							starredAfter = Optional.present(starredEdge.cursor)
@@ -126,6 +130,8 @@ internal class GitHub(
 									repoType = "watching",
 									diskUsageKb = node.diskUsage?.toLong(),
 									defaultBranch = node.defaultBranchRef?.name,
+									topics = node.repositoryTopics.nodes?.mapNotNull { it?.topic?.name } ?: emptyList(),
+									language = node.primaryLanguage?.name,
 								)
 							}
 							watchingAfter = Optional.present(watchingEdge.cursor)

@@ -179,6 +179,8 @@ internal class RepositoryMetadata(
 	val repoType: String, // "owned", "starred", "watching", "gist"
 	val diskUsageKb: Long? = null, // Repository size in KB (null for gists)
 	val defaultBranch: String? = null, // Default branch name (null for gists and empty repos)
+	val topics: List<String> = emptyList(), // empty for gists; GitHub API does not provide topics for gists
+	val language: String? = null,           // null for gists and repositories with no detected language
 )
 
 @Poko

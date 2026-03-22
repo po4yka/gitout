@@ -19,6 +19,8 @@ query UserRepos(
           updatedAt
           diskUsage
           defaultBranchRef { name }
+          repositoryTopics(first: 10) { nodes { topic { name } } }
+          primaryLanguage { name }
         }
       }
     }
@@ -35,6 +37,8 @@ query UserRepos(
           updatedAt
           diskUsage
           defaultBranchRef { name }
+          repositoryTopics(first: 10) { nodes { topic { name } } }
+          primaryLanguage { name }
         }
       }
     }
@@ -51,6 +55,8 @@ query UserRepos(
           updatedAt
           diskUsage
           defaultBranchRef { name }
+          repositoryTopics(first: 10) { nodes { topic { name } } }
+          primaryLanguage { name }
         }
       }
     }
