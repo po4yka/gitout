@@ -1,6 +1,7 @@
 package com.jakewharton.gitout
 
 import assertk.assertThat
+import assertk.assertions.contains
 import assertk.assertions.isEqualTo
 import assertk.assertions.isEmpty
 import org.junit.Test
@@ -187,5 +188,78 @@ class ConfigTest {
                         ),
 		)
 		assertThat(config.validate()).isEmpty()
+	}
+
+	@Test fun searchBlockParsesAllFields() {
+		val config = """
+			|version = 1
+			|
+			|[search]
+			|enabled = true
+			|qdrant_url = "http://qdrant:6333"
+			|collection_name = "my_repos"
+			|top_k = 5
+			|auto_index = false
+			""".trimMargin()
+		val expected = Config(
+			version = 1,
+			search = Config.Search(
+				enabled = true,
+				qdrantUrl = "http://qdrant:6333",
+				collectionName = "my_repos",
+				topK = 5,
+				autoIndex = false,
+			),
+		)
+		assertThat(Config.parse(config)).isEqualTo(expected)
+	}
+
+	@Test fun searchDefaultsWhenBlockOmitted() {
+		val config = """
+			|version = 1
+			""".trimMargin()
+		val parsed = Config.parse(config)
+		assertThat(parsed.search).isEqualTo(Config.Search())
+	}
+
+	@Test fun searchTopKBelowRangeProducesInvalidTopK() {
+		val config = Config(version = 1, search = Config.Search(topK = 0))
+		val errors = config.validate()
+		assertThat(errors).contains(ValidationError.InvalidTopK(0))
+	}
+
+	@Test fun searchTopKAboveRangeProducesInvalidTopK() {
+		val config = Config(version = 1, search = Config.Search(topK = 101))
+		val errors = config.validate()
+		assertThat(errors).contains(ValidationError.InvalidTopK(101))
+	}
+
+	@Test fun searchTopKAtBoundariesIsValid() {
+		val configMin = Config(version = 1, search = Config.Search(topK = 1))
+		val configMax = Config(version = 1, search = Config.Search(topK = 100))
+		assertThat(configMin.validate().filterIsInstance<ValidationError.InvalidTopK>()).isEmpty()
+		assertThat(configMax.validate().filterIsInstance<ValidationError.InvalidTopK>()).isEmpty()
+	}
+
+	@Test fun searchBlankQdrantUrlWhenEnabledProducesEmptyQdrantUrl() {
+		val config = Config(version = 1, search = Config.Search(enabled = true, qdrantUrl = "   "))
+		val errors = config.validate()
+		assertThat(errors).contains(ValidationError.EmptyQdrantUrl)
+	}
+
+	@Test fun searchBlankCollectionNameWhenEnabledProducesEmptyCollectionName() {
+		val config = Config(version = 1, search = Config.Search(enabled = true, collectionName = ""))
+		val errors = config.validate()
+		assertThat(errors).contains(ValidationError.EmptyCollectionName)
+	}
+
+	@Test fun searchBlankUrlAndCollectionNameNotValidatedWhenDisabled() {
+		val config = Config(
+			version = 1,
+			search = Config.Search(enabled = false, qdrantUrl = "", collectionName = ""),
+		)
+		val errors = config.validate()
+		assertThat(errors.filterIsInstance<ValidationError.EmptyQdrantUrl>()).isEmpty()
+		assertThat(errors.filterIsInstance<ValidationError.EmptyCollectionName>()).isEmpty()
 	}
 }

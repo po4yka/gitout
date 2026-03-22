@@ -37,6 +37,7 @@ internal class Config(
 	val lfs: Lfs = Lfs(),
 	@kotlinx.serialization.SerialName("exit_on_failure")
 	val exitOnFailure: Boolean = true, // Default true for backward compatibility
+	val search: Search = Search(),
 ) {
 	companion object {
 		private val lenientToml = Toml(TomlInputConfig(ignoreUnknownNames = true))
@@ -314,6 +315,19 @@ internal class Config(
 			errors.add(ValidationError.InvalidRepackDepth(maintenance.repackDepth))
 		}
 
+		// Validate search configuration
+		if (search.topK < 1 || search.topK > 100) {
+			errors.add(ValidationError.InvalidTopK(search.topK))
+		}
+		if (search.enabled) {
+			if (search.qdrantUrl.isBlank()) {
+				errors.add(ValidationError.EmptyQdrantUrl)
+			}
+			if (search.collectionName.isBlank()) {
+				errors.add(ValidationError.EmptyCollectionName)
+			}
+		}
+
 		return errors
 	}
 
@@ -501,6 +515,16 @@ internal class Config(
                 @kotlinx.serialization.SerialName("notify_ignore_repos")
                 val notifyIgnoreRepos: List<String> = emptyList(),
         )
+
+	@Poko
+	@Serializable
+	class Search(
+		val enabled: Boolean = false,
+		@kotlinx.serialization.SerialName("qdrant_url") val qdrantUrl: String = "http://localhost:6333",
+		@kotlinx.serialization.SerialName("collection_name") val collectionName: String = "repositories",
+		@kotlinx.serialization.SerialName("top_k") val topK: Int = 10,
+		@kotlinx.serialization.SerialName("auto_index") val autoIndex: Boolean = true,
+	)
 }
 
 /**
@@ -640,5 +664,18 @@ internal sealed class ValidationError {
 
 	data class InvalidRepackDepth(val depth: Int) : ValidationError() {
 		override val message = "Invalid repack depth: $depth. Must be >= 1."
+	}
+
+	// Search configuration errors
+	data class InvalidTopK(val count: Int) : ValidationError() {
+		override val message = "Invalid search top_k: $count. Must be between 1 and 100."
+	}
+
+	object EmptyQdrantUrl : ValidationError() {
+		override val message = "Search qdrant_url cannot be empty when search is enabled."
+	}
+
+	object EmptyCollectionName : ValidationError() {
+		override val message = "Search collection_name cannot be empty when search is enabled."
 	}
 }
