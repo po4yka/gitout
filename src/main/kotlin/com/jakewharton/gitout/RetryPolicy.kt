@@ -169,7 +169,7 @@ internal class RetryPolicy(
 					val delayMs = (baseDelay * delayMultiplier).toLong()
 
 					val fallbackInfo = if (shouldUseHttp1Fallback) " (using HTTP/1.1 fallback)" else ""
-					logger.info { "Retry attempt $attempt/$maxAttempts${operationDescription?.let { " for $it" } ?: ""}$fallbackInfo" }
+					logger.info { "Retry attempt $attempt/$maxAttempts${operationDescription?.let { " for $it" } ?: ""} (delay: ${delayMs}ms)$fallbackInfo" }
 					delay(delayMs)
 				}
 
@@ -237,6 +237,11 @@ internal class RetryPolicy(
 			cause = lastException,
 		)
 	}
+
+	/**
+	 * Exposes [calculateDelay] for unit tests within the same module.
+	 */
+	internal fun calculateDelayForTest(attempt: Int): Long = calculateDelay(attempt)
 
 	/**
 	 * Calculates the delay in milliseconds for a given retry attempt.

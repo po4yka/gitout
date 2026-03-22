@@ -485,6 +485,7 @@ internal class TelegramNotificationService(
 			byCategory.entries
 				.sortedBy { it.key.displayName }
 				.forEach { (category, repos) ->
+					// Check limit before printing header to avoid empty category headings
 					if (shown >= 5) return@forEach
 					appendLine("<b>${category.displayName} (${repos.size}):</b>")
 					repos.forEach { summary ->
@@ -493,8 +494,8 @@ internal class TelegramNotificationService(
 						val shortError = summary.errorMessage.trimEnd().lines().lastOrNull { it.isNotBlank() }
 							?.trim()?.take(120) ?: summary.errorMessage.take(120)
 						val attempts = if (summary.retryAttempts > 1) " ×${summary.retryAttempts}" else ""
-						appendLine("- <code>${summary.name}</code>$attempts")
-						appendLine("  $shortError")
+						appendLine("- <code>${escapeHtml(summary.name)}</code>$attempts")
+						appendLine("  ${escapeHtml(shortError)}")
 						shown++
 					}
 					appendLine()
@@ -539,14 +540,14 @@ internal class TelegramNotificationService(
 		val message = buildString {
 			appendLine("<b>Repository Sync Failed</b>")
 			appendLine()
-			appendLine("<b>Repository:</b> <code>$repoName</code>")
-			appendLine("<b>URL:</b> $repoUrl")
+			appendLine("<b>Repository:</b> <code>${escapeHtml(repoName)}</code>")
+			appendLine("<b>URL:</b> ${escapeHtml(repoUrl)}")
 			appendLine()
 			appendLine("<b>Error Type:</b> ${category.displayName}")
 			if (attemptsLine.isNotEmpty()) append(attemptsLine)
 			appendLine()
 			appendLine("<b>Error:</b>")
-			appendLine("<code>$truncatedError</code>")
+			appendLine("<code>${escapeHtml(truncatedError)}</code>")
 			appendLine()
 			appendLine("<b>Suggestion:</b>")
 			appendLine("<i>${category.suggestion}</i>")
@@ -609,8 +610,8 @@ internal class TelegramNotificationService(
 		val message = buildString {
 			appendLine("<b>First Backup Created</b>")
 			appendLine()
-			appendLine("<b>Repository:</b> <code>$repoName</code>")
-			appendLine("<b>URL:</b> $repoUrl")
+			appendLine("<b>Repository:</b> <code>${escapeHtml(repoName)}</code>")
+			appendLine("<b>URL:</b> ${escapeHtml(repoUrl)}")
 			appendLine()
 			appendLine("Initial backup completed successfully!")
 			appendLine("Timestamp: ${getCurrentTimestamp()}")
@@ -633,8 +634,8 @@ internal class TelegramNotificationService(
 		val message = buildString {
 			appendLine("<b>Repository Updated</b>")
 			appendLine()
-			appendLine("<b>Repository:</b> <code>$repoName</code>")
-			appendLine("<b>URL:</b> $repoUrl")
+			appendLine("<b>Repository:</b> <code>${escapeHtml(repoName)}</code>")
+			appendLine("<b>URL:</b> ${escapeHtml(repoUrl)}")
 			if (commitCount > 0) {
 				val commitWord = if (commitCount == 1) "commit" else "commits"
 				appendLine("<b>Changes:</b> $commitCount new $commitWord")
@@ -751,6 +752,13 @@ internal class TelegramNotificationService(
 	/**
 	 * Gets the current timestamp in a readable format.
 	 */
+	/**
+	 * Escapes special HTML characters in user-provided content to prevent
+	 * broken markup in Telegram HTML messages.
+	 */
+	private fun escapeHtml(text: String): String =
+		text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
 	private fun getCurrentTimestamp(): String {
 		return java.time.LocalDateTime.now()
 			.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))

@@ -2,6 +2,7 @@ package com.jakewharton.gitout
 
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import com.github.ajalt.clikt.core.Context
+import com.github.ajalt.clikt.core.UsageError
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.help
 import com.github.ajalt.clikt.parameters.options.counted
@@ -22,17 +23,15 @@ internal class IndexCommand(fs: FileSystem) : SuspendingCliktCommand(name = "ind
         .path(mustExist = true, canBeFile = false, fileSystem = fs)
         .help("Backup directory")
 
-    @Suppress("unused")
     private val verbosity by option("--verbose", "-v")
         .counted(limit = 3)
         .help("Increase logging verbosity")
 
-    @Suppress("unused")
     private val quiet by option("--quiet", "-q")
         .flag()
         .help("Suppress output")
 
     override suspend fun run() {
-        echo("Index not yet implemented.")
+        throw UsageError("'index' command not yet implemented")
     }
 }

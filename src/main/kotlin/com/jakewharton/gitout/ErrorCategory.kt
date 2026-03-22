@@ -10,6 +10,7 @@ internal enum class ErrorCategory {
 	 * Examples:
 	 * - "curl 92 HTTP/2 stream 5 was not closed cleanly: CANCEL"
 	 * - "curl 16 Error in the HTTP2 framing layer"
+	 * - "curl 56 Recv failure: Connection reset by peer"
 	 */
 	HTTP2_ERROR,
 
@@ -19,6 +20,10 @@ internal enum class ErrorCategory {
 	 * - "Connection reset by peer"
 	 * - "Connection timed out"
 	 * - "Network is unreachable"
+	 * - "the remote end hung up unexpectedly"
+	 * - "broken pipe"
+	 * - "remote: Internal server error" (GitHub 500/503)
+	 * - "early EOF" / "fetch-pack" (transfer failures)
 	 */
 	NETWORK_ERROR,
 
@@ -62,6 +67,7 @@ internal enum class ErrorCategory {
 	 * Examples:
 	 * - "SSL certificate problem"
 	 * - "unable to get local issuer certificate"
+	 * - "gnutls_handshake() failed"
 	 */
 	SSL_ERROR,
 
@@ -80,9 +86,9 @@ internal enum class ErrorCategory {
 
 	companion object {
 		/**
-		 * Classifies an error based on the exception message and exit code.
+		 * Classifies an error based on the exception message.
 		 */
-		fun classify(errorMessage: String?, exitCode: Int? = null): ErrorCategory {
+		fun classify(errorMessage: String?): ErrorCategory {
 			if (errorMessage == null) return UNKNOWN
 
 			val lowerMessage = errorMessage.lowercase()
@@ -92,6 +98,7 @@ internal enum class ErrorCategory {
 				lowerMessage.contains("http2") ||
 				lowerMessage.contains("curl 92") ||
 				lowerMessage.contains("curl 16") ||
+				lowerMessage.contains("curl 56") ||
 				lowerMessage.contains("stream") && lowerMessage.contains("cancel")) {
 				return HTTP2_ERROR
 			}
@@ -116,21 +123,29 @@ internal enum class ErrorCategory {
 				lowerMessage.contains("couldn't connect") ||
 				lowerMessage.contains("could not connect") ||
 				lowerMessage.contains("failed to connect") ||
+				lowerMessage.contains("the remote end hung up unexpectedly") ||
+				lowerMessage.contains("broken pipe") ||
 				lowerMessage.contains("name or service not known") ||
 				lowerMessage.contains("temporary failure in name resolution") ||
-				lowerMessage.contains("could not resolve host")) {
+				lowerMessage.contains("could not resolve host") ||
+				lowerMessage.contains("remote: internal server error") ||
+				lowerMessage.contains("service unavailable") ||
+				lowerMessage.contains("early eof") ||
+				lowerMessage.contains("unexpected disconnect") ||
+				lowerMessage.contains("fetch-pack")) {
 				return NETWORK_ERROR
 			}
 
-			// Rate limiting
+			// Rate limiting - require surrounding context to avoid matching repo names/URLs
 			if (lowerMessage.contains("rate limit") ||
 				lowerMessage.contains("too many requests") ||
 				lowerMessage.contains("retry after") ||
-				lowerMessage.contains("429")) {
+				lowerMessage.contains("error: 429") ||
+				lowerMessage.contains("returned error: 429")) {
 				return RATE_LIMIT
 			}
 
-			// Authentication errors
+			// Authentication errors - tighten "403" to require error context
 			if (lowerMessage.contains("authentication failed") ||
 				lowerMessage.contains("permission denied") ||
 				lowerMessage.contains("access denied") ||
@@ -138,7 +153,8 @@ internal enum class ErrorCategory {
 				lowerMessage.contains("bad credentials") ||
 				lowerMessage.contains("could not read username") ||
 				lowerMessage.contains("terminal prompts disabled") ||
-				lowerMessage.contains("403") ||
+				lowerMessage.contains("error: 403") ||
+				lowerMessage.contains("returned error: 403") ||
 				lowerMessage.contains("repository not found")) {
 				return AUTH_ERROR
 			}
@@ -152,7 +168,8 @@ internal enum class ErrorCategory {
 				lowerMessage.contains("ssl: ") ||
 				lowerMessage.contains("tlsv1") ||
 				lowerMessage.contains("tls handshake") ||
-				lowerMessage.contains("tls alert")) {
+				lowerMessage.contains("tls alert") ||
+				lowerMessage.contains("gnutls_handshake")) {
 				return SSL_ERROR
 			}
 
@@ -176,14 +193,6 @@ internal enum class ErrorCategory {
 				lowerMessage.contains("does not appear to be a git") ||
 				lowerMessage.contains("404 not found")) {
 				return REPOSITORY_ERROR
-			}
-
-			// Check for common git error patterns
-			if (lowerMessage.contains("early eof") ||
-				lowerMessage.contains("unexpected disconnect") ||
-				lowerMessage.contains("fetch-pack")) {
-				// These are often caused by HTTP/2 issues
-				return HTTP2_ERROR
 			}
 
 			return UNKNOWN
