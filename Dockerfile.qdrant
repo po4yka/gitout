@@ -1,0 +1,54 @@
+# Custom Qdrant build for Raspberry Pi 5 (16K page size)
+#
+# The official qdrant/qdrant image ships jemalloc compiled for 4K pages.
+# Pi 5 uses 16K pages (CONFIG_ARM64_16K_PAGES=y), which causes an immediate
+# crash with "Unsupported system page size". Building from source with
+# JEMALLOC_SYS_WITH_LG_PAGE=14 fixes this.
+#
+# Build once: docker compose build qdrant
+# This takes ~60-90 minutes on Pi 5.
+
+FROM rust:slim-bookworm AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cmake \
+    protobuf-compiler \
+    libssl-dev \
+    pkg-config \
+    git \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Pin to a stable release tag
+ARG QDRANT_VERSION=v1.13.6
+RUN git clone --depth 1 --branch ${QDRANT_VERSION} \
+    https://github.com/qdrant/qdrant.git /qdrant
+
+WORKDIR /qdrant
+
+# Tell tikv-jemallocator to build jemalloc with 16K page (2^14) support
+ENV JEMALLOC_SYS_WITH_LG_PAGE=14
+
+RUN cargo build --release --bin qdrant
+
+# --- runtime image ---
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libssl3 \
+    ca-certificates \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /qdrant/storage /qdrant/snapshots /qdrant/config
+
+COPY --from=builder /qdrant/target/release/qdrant /qdrant/qdrant
+COPY --from=builder /qdrant/config /qdrant/config
+
+WORKDIR /qdrant
+EXPOSE 6333 6334
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD wget -qO- http://localhost:6333/healthz || exit 1
+
+ENTRYPOINT ["/qdrant/qdrant"]
