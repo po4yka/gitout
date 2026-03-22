@@ -17,16 +17,23 @@ import com.github.ajalt.clikt.parameters.options.help
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.versionOption
 import com.github.ajalt.clikt.parameters.types.path
+import com.jakewharton.gitout.search.GeminiEmbeddingClient
+import com.jakewharton.gitout.search.QdrantClient
+import com.jakewharton.gitout.search.ReadmeExtractor
+import com.jakewharton.gitout.search.SearchIndexService
 import io.github.kevincianfarini.cardiologist.PulseBackpressureStrategy.Companion.SkipNext
 import io.github.kevincianfarini.cardiologist.PulseSchedule
 import io.github.kevincianfarini.cardiologist.schedulePulse
 import java.nio.file.FileSystem
 import java.nio.file.FileSystems
+import kotlin.io.path.Path
+import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlinx.datetime.TimeZone
+import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -149,6 +156,20 @@ private class GitOutCommand(
 			logger.debug { "Telegram notifications disabled" }
 		}
 
+		// Create SearchIndexService if search is enabled
+		val searchIndexService: SearchIndexService? = if (parsedConfig.search.enabled) {
+			val geminiApiKey = resolveGeminiApiKey(logger)
+			if (geminiApiKey == null) {
+				logger.warn("Search is enabled but GEMINI_API_KEY or GEMINI_API_KEY_FILE is not set. Search indexing disabled.")
+				null
+			} else {
+				val geminiClient = GeminiEmbeddingClient(client, geminiApiKey, logger)
+				val qdrantClient = QdrantClient(parsedConfig.search.qdrantUrl, client, Json)
+				val readmeExtractor = ReadmeExtractor(logger)
+				SearchIndexService(geminiClient, qdrantClient, readmeExtractor, parsedConfig.search, logger)
+			}
+		} else null
+
 		val engine = Engine(
 			config = cfg,
 			destination = dest,
@@ -158,6 +179,7 @@ private class GitOutCommand(
 			client = client,
 			healthCheck = healthCheck,
 			telegramService = telegramService,
+			searchIndexService = searchIndexService,
 		)
 
 		val schedule = schedule
@@ -181,4 +203,30 @@ private class GitOutCommand(
 		client.connectionPool.evictAll()
 		client.dispatcher.executorService.shutdown()
 	}
+}
+
+/**
+ * Resolves the Gemini API key from environment variables with the following priority:
+ * 1. GEMINI_API_KEY environment variable (key value directly)
+ * 2. GEMINI_API_KEY_FILE environment variable (path to file containing key)
+ */
+private fun resolveGeminiApiKey(logger: Logger): String? {
+	val envKey = System.getenv("GEMINI_API_KEY")
+	if (!envKey.isNullOrBlank()) {
+		logger.debug { "Using Gemini API key from GEMINI_API_KEY environment variable" }
+		return envKey
+	}
+	val keyFile = System.getenv("GEMINI_API_KEY_FILE")
+	if (!keyFile.isNullOrBlank()) {
+		val path = Path(keyFile)
+		if (path.exists()) {
+			val key = path.readText().trim()
+			if (key.isNotBlank()) {
+				logger.debug { "Using Gemini API key from file: $keyFile" }
+				return key
+			}
+		}
+		logger.warn("GEMINI_API_KEY_FILE points to missing or empty file: $keyFile")
+	}
+	return null
 }

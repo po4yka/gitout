@@ -13,6 +13,7 @@ import kotlin.io.path.name
 import kotlin.io.path.notExists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
+import com.jakewharton.gitout.search.SearchIndexService
 import kotlin.time.Duration
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -32,6 +33,7 @@ internal class Engine(
 	private val client: OkHttpClient,
 	private val healthCheck: HealthCheck?,
 	private val telegramService: TelegramNotificationService?,
+	private val searchIndexService: SearchIndexService? = null,
 ) {
 	private var sslConfig: Config.Ssl = Config.Ssl()
 	private var sslEnvironment: Map<String, String> = emptyMap()
@@ -410,6 +412,19 @@ internal class Engine(
 		}
 
 		startedHealthCheck?.complete()
+
+		// Auto-index repositories for semantic search (after sync and credential cleanup)
+		if (searchIndexService != null && repoMetadata.isNotEmpty() && config.search.autoIndex) {
+			logger.info { "Starting semantic index update for ${repoMetadata.size} repositories..." }
+			try {
+				// GitHub repos are stored at destination/github/clone/<owner>/<repo>
+				// repoMetadata keys are in "owner/repo" format, so SearchIndexService resolves paths as backupDir.resolve(repo.name)
+				searchIndexService.indexRepositories(repoMetadata, destination.resolve("github/clone"))
+				logger.info { "Semantic index update complete" }
+			} catch (e: Exception) {
+				logger.warn("Semantic indexing failed (non-fatal): ${e.message}")
+			}
+		}
 	}
 
 	/**
