@@ -3,6 +3,7 @@ package com.jakewharton.gitout.search
 import com.jakewharton.gitout.Logger
 import java.io.File
 import java.nio.file.Path
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 
 internal class ReadmeExtractor(private val logger: Logger) {
@@ -18,15 +19,20 @@ internal class ReadmeExtractor(private val logger: Logger) {
                 processBuilder.redirectError(ProcessBuilder.Redirect.to(File("/dev/null")))
                 val process = processBuilder.start()
 
-                val output = process.inputStream.readBytes().toString(Charsets.UTF_8)
+                // Read stdout asynchronously to prevent blocking indefinitely if the process hangs
+                val outputFuture = CompletableFuture.supplyAsync {
+                    process.inputStream.readBytes().toString(Charsets.UTF_8)
+                }
 
                 val finished = process.waitFor(30, TimeUnit.SECONDS)
                 if (!finished) {
                     process.destroyForcibly()
+                    outputFuture.cancel(true)
                     continue
                 }
 
                 if (process.exitValue() == 0) {
+                    val output = outputFuture.get()
                     val truncated = output.take(8000)
                     logger.debug { "Extracted README from $bareRepoPath: ${truncated.length} chars" }
                     return truncated

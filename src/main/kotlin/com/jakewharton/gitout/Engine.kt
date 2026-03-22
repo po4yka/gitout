@@ -531,7 +531,8 @@ internal class Engine(
 							SyncResult(task, success = true, durationMs = taskDuration)
 						} catch (e: Throwable) {
 							val taskDuration = System.currentTimeMillis() - taskStartTime
-							val errorMsg = e.message ?: "Unknown error"
+							// Use the original cause message for SyncFailureException so Telegram shows the actual git error
+							val errorMsg = (e as? SyncFailureException)?.cause?.message ?: e.message ?: "Unknown error"
 							logger.warn("Failed sync: ${task.url}: $errorMsg")
 
 							// Extract structured error info from SyncFailureException, fall back to classify
@@ -590,7 +591,8 @@ internal class Engine(
 			logger.warn("Failed repositories:")
 			val failedResults = results.filter { !it.success }.map { result ->
 				val err = result.error
-				val errorMsg = err?.message ?: "Unknown error"
+				// Use the original cause message for SyncFailureException so Telegram shows the actual git error
+				val errorMsg = (err as? SyncFailureException)?.cause?.message ?: err?.message ?: "Unknown error"
 				logger.warn("  - ${result.task.name} (${result.task.url}): $errorMsg")
 				FailedRepoSummary(
 					name = result.task.name,

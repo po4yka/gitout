@@ -75,6 +75,15 @@ internal class ReadmeExtractorTest {
         assertThat(result).isEqualTo(expectedContent)
     }
 
+    @Test fun `extract falls back to readme md (lowercase) before README rst`() {
+        val expectedContent = "# lowercase readme"
+        val bareRepo = createBareRepoWithFile("readme.md", expectedContent)
+
+        val result = extractor.extract(bareRepo)
+
+        assertThat(result).isEqualTo(expectedContent)
+    }
+
     @Test fun `extract falls back to README rst when README md absent`() {
         val expectedContent = "My Project\n==========\n\nA reStructuredText readme."
         val bareRepo = createBareRepoWithFile("README.rst", expectedContent)

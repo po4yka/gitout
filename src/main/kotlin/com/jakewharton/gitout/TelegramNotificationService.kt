@@ -491,7 +491,7 @@ internal class TelegramNotificationService(
 						if (shown >= 5) return@forEach
 						// Extract last line of error (the actual git message) for brevity
 						val shortError = summary.errorMessage.trimEnd().lines().lastOrNull { it.isNotBlank() }
-							?.trim()?.take(80) ?: summary.errorMessage.take(80)
+							?.trim()?.take(120) ?: summary.errorMessage.take(120)
 						val attempts = if (summary.retryAttempts > 1) " ×${summary.retryAttempts}" else ""
 						appendLine("- <code>${summary.name}</code>$attempts")
 						appendLine("  $shortError")

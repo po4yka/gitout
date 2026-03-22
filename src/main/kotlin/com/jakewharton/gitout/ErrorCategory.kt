@@ -114,6 +114,8 @@ internal enum class ErrorCategory {
 				lowerMessage.contains("host is unreachable") ||
 				lowerMessage.contains("recv failure") ||
 				lowerMessage.contains("couldn't connect") ||
+				lowerMessage.contains("could not connect") ||
+				lowerMessage.contains("failed to connect") ||
 				lowerMessage.contains("name or service not known") ||
 				lowerMessage.contains("temporary failure in name resolution") ||
 				lowerMessage.contains("could not resolve host")) {
@@ -172,7 +174,6 @@ internal enum class ErrorCategory {
 				lowerMessage.contains("bad object") ||
 				lowerMessage.contains("is corrupt") ||
 				lowerMessage.contains("does not appear to be a git") ||
-				lowerMessage.contains("fatal: unable to access") ||
 				lowerMessage.contains("404 not found")) {
 				return REPOSITORY_ERROR
 			}

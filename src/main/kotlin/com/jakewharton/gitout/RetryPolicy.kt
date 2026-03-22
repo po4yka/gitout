@@ -153,8 +153,10 @@ internal class RetryPolicy(
 		var shouldUseHttp1Fallback = false
 		var lastErrorCategory: ErrorCategory? = null
 		val errorCategories = mutableListOf<ErrorCategory>()
+		var actualAttempts = 0
 
 		for (attempt in 1..maxAttempts) {
+			actualAttempts = attempt
 			try {
 				// Add delay before retry attempts (not on first attempt)
 				if (attempt > 1) {
@@ -229,9 +231,9 @@ internal class RetryPolicy(
 			""
 		}
 		throw SyncFailureException(
-			message = "Failed to complete $description after $maxAttempts attempts$categoryInfo",
+			message = "Failed to complete $description after $actualAttempts attempts$categoryInfo",
 			errorCategories = errorCategories.toList(),
-			attemptCount = maxAttempts,
+			attemptCount = actualAttempts,
 			cause = lastException,
 		)
 	}

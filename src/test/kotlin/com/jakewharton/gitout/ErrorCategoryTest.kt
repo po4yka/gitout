@@ -75,6 +75,33 @@ class ErrorCategoryTest {
 			.isEqualTo(ErrorCategory.RATE_LIMIT)
 	}
 
+	// --- NETWORK_ERROR: "fatal: unable to access" with network causes ---
+
+	@Test fun `unable to access with failed to connect classified as NETWORK_ERROR`() {
+		assertThat(classify("Unable to sync https://github.com/facebook/redex.git into /data/github/clone/facebook/redex: exit 128\nfatal: unable to access 'https://github.com/facebook/redex.git/': Failed to connect to github.com port 443 after 134329 ms: Could not connect to server"))
+			.isEqualTo(ErrorCategory.NETWORK_ERROR)
+	}
+
+	@Test fun `unable to access with could not connect classified as NETWORK_ERROR`() {
+		assertThat(classify("fatal: unable to access 'https://github.com/user/repo.git/': Could not connect to server"))
+			.isEqualTo(ErrorCategory.NETWORK_ERROR)
+	}
+
+	@Test fun `unable to access with could not resolve host classified as NETWORK_ERROR`() {
+		assertThat(classify("fatal: unable to access 'https://github.com/user/repo.git/': Could not resolve host: github.com"))
+			.isEqualTo(ErrorCategory.NETWORK_ERROR)
+	}
+
+	@Test fun `unable to access with 403 still classified as AUTH_ERROR`() {
+		assertThat(classify("fatal: unable to access 'https://github.com/user/repo.git/': The requested URL returned error: 403"))
+			.isEqualTo(ErrorCategory.AUTH_ERROR)
+	}
+
+	@Test fun `does not appear to be a git repository still classified as REPOSITORY_ERROR`() {
+		assertThat(classify("fatal: does not appear to be a git repository"))
+			.isEqualTo(ErrorCategory.REPOSITORY_ERROR)
+	}
+
 	// --- NETWORK_ERROR ordering fix: "connection timed out" should NOT be TIMEOUT ---
 
 	@Test fun `connection timed out classified as NETWORK_ERROR not TIMEOUT`() {
