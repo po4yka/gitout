@@ -4,8 +4,11 @@ package com.jakewharton.gitout
 
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import com.github.ajalt.clikt.command.main
+import com.github.ajalt.clikt.core.UsageError
+import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.help
+import com.github.ajalt.clikt.parameters.arguments.optional
 import com.github.ajalt.clikt.parameters.options.convert
 import com.github.ajalt.clikt.parameters.options.counted
 import com.github.ajalt.clikt.parameters.options.default
@@ -41,17 +44,22 @@ private class GitOutCommand(
 	private val clock: Clock,
 	private val timeZone: TimeZone,
 ) : SuspendingCliktCommand(name = "gitout") {
+	override val invokeWithoutSubcommand: Boolean get() = true
+
 	init {
 		versionOption(version)
+		subcommands(SearchCommand(fs), IndexCommand(fs))
 	}
 
 	private val config by argument()
 		.path(mustExist = true, canBeDir = false, fileSystem = fs)
 		.help("Configuration TOML")
+		.optional()
 
 	private val destination by argument()
 		.path(mustExist = true, canBeFile = false, fileSystem = fs)
 		.help("Backup directory")
+		.optional()
 
 	private val timeout by option(envvar = "GITOUT_TIMEOUT")
 		.convert { Duration.parse(it) }
@@ -91,6 +99,12 @@ private class GitOutCommand(
 		.help("Host of Healthchecks.io service to notify. Requires --hc-id")
 
 	override suspend fun run() {
+		if (currentContext.invokedSubcommand != null) return
+
+		// Sync mode — require both positional arguments
+		val cfg = config ?: throw UsageError("Missing argument CONFIG")
+		val dest = destination ?: throw UsageError("Missing argument DESTINATION")
+
 		val logger = Logger(quiet, verbosity)
 
 		val client = OkHttpClient.Builder()
@@ -111,7 +125,7 @@ private class GitOutCommand(
 		val healthCheck = healthCheckId?.let(healthCheckService::newCheck)
 
 		// Parse config early to initialize services
-		val parsedConfig = Config.parse(config.readText(), logger)
+		val parsedConfig = Config.parse(cfg.readText(), logger)
 
 		// Validate configuration
 		val validationErrors = parsedConfig.validate()
@@ -136,8 +150,8 @@ private class GitOutCommand(
 		}
 
 		val engine = Engine(
-			config = config,
-			destination = destination,
+			config = cfg,
+			destination = dest,
 			timeout = timeout,
 			workers = workers,
 			logger = logger,

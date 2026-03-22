@@ -231,4 +231,63 @@ class RetryPolicyTest {
 		assertThat(exception).isNotNull()
 		assertThat(exception!!.errorCategories.first()).isEqualTo(ErrorCategory.REPOSITORY_ERROR)
 	}
+
+	@Test
+	fun `non-retryable error reports actual attempt count not maxAttempts`() = runTest {
+		val policy = RetryPolicy(maxAttempts = 6, baseDelayMs = 10L, logger = quietLogger)
+
+		val exception = try {
+			policy.execute("auth failing") {
+				throw RuntimeException("authentication failed")
+			}
+			null
+		} catch (e: SyncFailureException) {
+			e
+		}
+
+		// Should report 1 actual attempt, not the configured 6
+		assertThat(exception).isNotNull()
+		assertThat(exception!!.attemptCount).isEqualTo(1)
+	}
+
+	@Test
+	fun `EXPONENTIAL backoff doubles delay each attempt`() {
+		val policy = RetryPolicy(
+			maxAttempts = 5,
+			baseDelayMs = 100L,
+			backoffStrategy = RetryPolicy.BackoffStrategy.EXPONENTIAL,
+			logger = quietLogger,
+		)
+		// EXPONENTIAL: baseDelayMs * 2^(attempt-1)
+		// attempt 2: 100 * 2^1 = 200ms, attempt 3: 100 * 2^2 = 400ms, attempt 4: 100 * 2^3 = 800ms
+		assertThat(policy.calculateDelayForTest(2)).isEqualTo(200L)
+		assertThat(policy.calculateDelayForTest(3)).isEqualTo(400L)
+		assertThat(policy.calculateDelayForTest(4)).isEqualTo(800L)
+	}
+
+	@Test
+	fun `CONSTANT backoff always uses base delay`() {
+		val policy = RetryPolicy(
+			maxAttempts = 5,
+			baseDelayMs = 100L,
+			backoffStrategy = RetryPolicy.BackoffStrategy.CONSTANT,
+			logger = quietLogger,
+		)
+		assertThat(policy.calculateDelayForTest(2)).isEqualTo(100L)
+		assertThat(policy.calculateDelayForTest(3)).isEqualTo(100L)
+		assertThat(policy.calculateDelayForTest(4)).isEqualTo(100L)
+	}
+
+	@Test
+	fun `LINEAR backoff multiplies delay by attempt number`() {
+		val policy = RetryPolicy(
+			maxAttempts = 5,
+			baseDelayMs = 100L,
+			backoffStrategy = RetryPolicy.BackoffStrategy.LINEAR,
+			logger = quietLogger,
+		)
+		// LINEAR: baseDelayMs * attempt
+		assertThat(policy.calculateDelayForTest(2)).isEqualTo(200L)
+		assertThat(policy.calculateDelayForTest(3)).isEqualTo(300L)
+	}
 }
