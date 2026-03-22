@@ -121,4 +121,16 @@ internal class ReadmeExtractorTest {
         assertThat(result.length).isEqualTo(8000)
         assertThat(result).isEqualTo(longContent.take(8000))
     }
+
+    @Test fun `extract returns empty string for bare repo with no commits`() {
+        val bareDir = Files.createTempDirectory("bare-empty")
+        try {
+            ProcessBuilder("git", "init", "--bare", bareDir.toAbsolutePath().toString())
+                .start().waitFor()
+            val result = extractor.extract(bareDir)
+            assertThat(result).isEqualTo("")
+        } finally {
+            bareDir.toFile().deleteRecursively()
+        }
+    }
 }

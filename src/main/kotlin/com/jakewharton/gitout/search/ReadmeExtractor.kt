@@ -32,7 +32,13 @@ internal class ReadmeExtractor(private val logger: Logger) {
                 }
 
                 if (process.exitValue() == 0) {
-                    val output = outputFuture.get()
+                    val output = try {
+                        outputFuture.get(30, TimeUnit.SECONDS)
+                    } catch (e: java.util.concurrent.TimeoutException) {
+                        outputFuture.cancel(true)
+                        logger.debug { "Timed out reading stdout from $bareRepoPath for $filename" }
+                        continue
+                    }
                     val truncated = output.take(8000)
                     logger.debug { "Extracted README from $bareRepoPath: ${truncated.length} chars" }
                     return truncated
