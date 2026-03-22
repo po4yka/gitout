@@ -142,18 +142,6 @@ private class GitOutCommand(
 			throw IllegalArgumentException("Configuration contains ${validationErrors.size} validation error(s)")
 		}
 
-		// Initialize Telegram service
-		val telegramService = TelegramNotificationService(
-			config = parsedConfig.telegram,
-			logger = logger,
-		)
-
-		if (telegramService.isEnabled()) {
-			logger.info { "Telegram notifications enabled" }
-		} else {
-			logger.debug { "Telegram notifications disabled" }
-		}
-
 		// Create SearchIndexService if search is enabled
 		val searchIndexService: SearchIndexService? = if (parsedConfig.search.enabled) {
 			val geminiApiKey = resolveGeminiApiKey(logger)
@@ -167,6 +155,20 @@ private class GitOutCommand(
 				SearchIndexService(geminiClient, qdrantClient, readmeExtractor, parsedConfig.search, logger)
 			}
 		} else null
+
+		// Initialize Telegram service
+		val telegramService = TelegramNotificationService(
+			config = parsedConfig.telegram,
+			logger = logger,
+			searchIndexService = searchIndexService,
+			searchDestination = dest,
+		)
+
+		if (telegramService.isEnabled()) {
+			logger.info { "Telegram notifications enabled" }
+		} else {
+			logger.debug { "Telegram notifications disabled" }
+		}
 
 		val engine = Engine(
 			config = cfg,

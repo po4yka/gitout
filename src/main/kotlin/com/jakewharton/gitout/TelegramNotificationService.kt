@@ -8,6 +8,7 @@ import com.github.kotlintelegrambot.entities.BotCommand
 import com.github.kotlintelegrambot.entities.ChatId
 import com.jakewharton.gitout.ErrorCategory.Companion.displayName
 import com.jakewharton.gitout.ErrorCategory.Companion.suggestion
+import com.jakewharton.gitout.search.SearchIndexService
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.time.Duration
@@ -15,6 +16,10 @@ import java.time.Instant
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.io.path.exists
 import kotlin.io.path.readText
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Summary of a single failed repository sync, passed to [TelegramNotificationService.notifyErrors].
@@ -51,6 +56,8 @@ internal data class FailedRepoSummary(
 internal class TelegramNotificationService(
 	private val config: Config.Telegram?,
 	private val logger: Logger,
+	private val searchIndexService: SearchIndexService? = null,
+	private val searchDestination: Path? = null,
 ) {
 	/**
 	 * Thread-safe container for sync statistics.
@@ -135,6 +142,8 @@ internal class TelegramNotificationService(
 									"/status - Get current sync status\n" +
 									"/stats - Get repository statistics\n" +
 									"/info - Get bot and repository information\n" +
+									"/find <query> - Search repositories by natural language\n" +
+									"/reindex - Re-index all repositories for search\n" +
 									"/help - Show this help message"
 							}
 						}
@@ -146,6 +155,8 @@ internal class TelegramNotificationService(
 									"/status - Get current synchronization status\n" +
 									"/stats - Get repository statistics and last sync time\n" +
 									"/info - Get bot and repository information\n" +
+									"/find <query> - Search repositories by natural language\n" +
+									"/reindex - Re-index all repositories for search\n" +
 									"/help - Show this help message\n\n" +
 									"<i>This bot monitors GitOut repository synchronization and sends notifications.</i>"
 							}
@@ -227,6 +238,70 @@ internal class TelegramNotificationService(
 									"<b>Authorized Users:</b> ${telegramConfig.allowedUsers.size}"
 							}
 						}
+
+						command("find") {
+							handleCommand(message.from?.id, "find") {
+								if (searchIndexService == null) {
+									"Search is not enabled. Add [search] configuration to enable it."
+								} else {
+									val query = args.joinToString(" ").trim()
+									if (query.isBlank()) {
+										"Usage: /find <query>\n\nExample: /find OAuth authentication library"
+									} else {
+										val results = runBlocking { searchIndexService.search(query) }
+										if (results.isEmpty()) {
+											"No repositories found matching \"${escapeHtml(query)}\""
+										} else {
+											buildString {
+												appendLine("<b>Results for \"${escapeHtml(query)}\":</b>")
+												appendLine()
+												results.take(10).forEachIndexed { index, result ->
+													val score = "%.2f".format(result.score)
+													val name = (result.payload["name"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: result.id
+													val description = (result.payload["description"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: ""
+													val language = (result.payload["language"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "unknown"
+													val topicsList = result.payload["topics"]?.let { el ->
+														el.jsonArray.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+													} ?: emptyList()
+													val topics = topicsList.joinToString(", ").let { if (it.isBlank()) "none" else it }
+													val desc = description.ifBlank { "(no description)" }
+													appendLine("${index + 1}. <code>${escapeHtml(name)}</code> ($score)")
+													appendLine("   ${escapeHtml(desc)}")
+													appendLine("   Language: $language | Topics: $topics")
+													appendLine()
+												}
+											}.trimEnd()
+										}
+									}
+								}
+							}
+						}
+
+						command("reindex") {
+							handleCommand(message.from?.id, "reindex") {
+								if (searchIndexService == null || searchDestination == null) {
+									"Search is not enabled. Add [search] configuration to enable it."
+								} else {
+									val stateFile = searchDestination.resolve("github").resolve(".gitout-state.json")
+									if (!stateFile.exists()) {
+										"No repository state found. Run a sync first."
+									} else {
+										try {
+											val stateJson = Json { ignoreUnknownKeys = true }
+											val state = stateJson.decodeFromString<RepositoryState>(stateFile.readText())
+											val count = state.repositories.size
+											val cloneDir = searchDestination.resolve("github").resolve("clone")
+											runBlocking {
+												searchIndexService.indexRepositories(state.repositories, cloneDir)
+											}
+											"Re-index complete. Indexed $count repositories."
+										} catch (e: Exception) {
+											"Re-index failed: ${escapeHtml(e.message ?: "unknown error")}"
+										}
+									}
+								}
+							}
+						}
 					}
 				}
 			}.also { createdBot ->
@@ -246,6 +321,8 @@ internal class TelegramNotificationService(
 						BotCommand("stats", "Get repository statistics"),
 						BotCommand("info", "Get bot information"),
 						BotCommand("fails", "Show recent failures"),
+						BotCommand("find", "Search repos by natural language"),
+						BotCommand("reindex", "Trigger full re-index of all repositories"),
 						BotCommand("help", "Show help message"),
 						BotCommand("ping", "Check bot responsiveness"),
 					)
