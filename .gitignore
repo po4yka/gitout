@@ -18,3 +18,7 @@ test-config*.toml
 config.toml
 docker-compose.yml
 secrets/
+
+# Stray JVM compilation artifacts
+/META-INF/
+/com/
