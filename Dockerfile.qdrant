@@ -17,6 +17,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     git \
     ca-certificates \
+    clang \
+    libclang-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Pin to a stable release tag
