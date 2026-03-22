@@ -27,7 +27,7 @@ internal class QdrantPoint(
 )
 
 @Poko @Serializable
-internal class ScoredResult(
+internal class SearchResult(
     val id: String,
     val score: Float,
     val payload: Map<String, JsonElement>,
@@ -81,7 +81,7 @@ internal class QdrantClient(
         }
     }
 
-    internal fun search(collectionName: String, vector: FloatArray, topK: Int): List<ScoredResult> {
+    internal fun search(collectionName: String, vector: FloatArray, topK: Int): List<SearchResult> {
         val vectorJson = json.encodeToJsonElement(vector.toList())
         val body = buildJsonObject {
             put("vector", vectorJson)
@@ -110,7 +110,7 @@ internal class QdrantClient(
                     val score = obj["score"]?.jsonPrimitive?.content?.toFloat()
                         ?: throw SearchException("Missing 'score' in search result")
                     val payload = obj["payload"]?.jsonObject?.toMap() ?: emptyMap()
-                    ScoredResult(id = id, score = score, payload = payload)
+                    SearchResult(id = id, score = score, payload = payload)
                 }
             } catch (e: SearchException) {
                 throw e
