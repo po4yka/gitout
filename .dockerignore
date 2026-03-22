@@ -6,5 +6,6 @@
 /.idea
 /.kotlin
 /build
+!/build/install/gitout
 /LICENSE.txt
 /*.md
