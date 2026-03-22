@@ -206,6 +206,14 @@ notify_new_repos = true     # Notify about new repositories discovered (default:
 notify_updates = false      # Notify about each repository update (default: false)
 enable_commands = false     # Enable bot command interface (default: false)
 allowed_users = []          # List of authorized Telegram user IDs for commands
+
+# Semantic search configuration (optional)
+[search]
+enabled = false              # Enable semantic repository search (default: false)
+qdrant_url = "http://localhost:6333"  # Qdrant vector store URL
+collection_name = "repositories"     # Qdrant collection name (default: repositories)
+top_k = 10                  # Number of results to return (default: 10)
+auto_index = true           # Index after each sync (default: true)
 ```
 
 ### GitHub Token Configuration
@@ -515,6 +523,89 @@ notify_updates = false     # Disable per-repository update notifications (defaul
 - Telegram has rate limits for bots (30 messages per second)
 - The tool implements smart throttling for progress notifications
 - Progress updates are sent at 10% intervals to reduce spam
+
+### Semantic Repository Search
+
+gitout supports natural language search over your backed-up repositories using
+[Gemini Embedding 2](https://ai.google.dev/gemini-api/docs/embeddings) for vector
+generation and [Qdrant](https://qdrant.tech/) as a local vector store.
+
+#### What gets indexed
+
+Each repository is indexed with:
+- Repository name, description, topics, and primary language (from GitHub metadata)
+- README content (up to 8000 characters, extracted from the bare git clone)
+
+A SHA-256 content hash prevents re-embedding unchanged repositories on subsequent runs.
+
+#### Prerequisites
+
+1. **Qdrant** running locally (Docker recommended):
+   ```yaml
+   # Add to docker-compose.yml
+   qdrant:
+     image: qdrant/qdrant:latest
+     restart: unless-stopped
+     volumes:
+       - /mnt/nvme/gitout/qdrant:/qdrant/storage
+   ```
+
+2. **Gemini API key** — obtain from [Google AI Studio](https://aistudio.google.com/).
+   Set via environment variable:
+   ```bash
+   export GEMINI_API_KEY=your_key_here
+   # or use a file:
+   export GEMINI_API_KEY_FILE=/run/secrets/gemini_api_key
+   ```
+
+#### Configuration
+
+```toml
+[search]
+enabled = true
+qdrant_url = "http://localhost:6333"   # Qdrant REST API URL
+collection_name = "repositories"       # Vector collection name
+top_k = 10                             # Max results to return
+auto_index = true                      # Index after each sync
+```
+
+#### CLI commands
+
+```bash
+# Search repositories by natural language
+gitout search "OAuth authentication library in Kotlin" config.toml /backup/path
+
+# Re-index all repositories manually
+gitout index config.toml /backup/path
+```
+
+Example search output:
+```
+Results for "OAuth authentication library in Kotlin":
+
+1. myorg/auth-service (0.91)
+   Kotlin OAuth2 server with JWT support
+   Language: Kotlin | Topics: oauth, jwt, security
+
+2. myorg/passport-middleware (0.87)
+   Node.js OAuth middleware
+   Language: JavaScript | Topics: oauth, middleware
+```
+
+#### Telegram bot commands
+
+When `enable_commands = true` and `search.enabled = true`:
+
+| Command | Description |
+|---------|-------------|
+| `/find <query>` | Search repositories by natural language |
+| `/reindex` | Trigger a full re-index of all repositories |
+
+#### Rate limiting
+
+The Gemini Embedding API free tier allows 1500 requests/day and 100 RPM.
+gitout inserts a 100 ms delay between embedding calls and skips unchanged
+repositories (via SHA comparison) to minimise API usage on re-index runs.
 
 ### SSL/TLS Configuration
 
