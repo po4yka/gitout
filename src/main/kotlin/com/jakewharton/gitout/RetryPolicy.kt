@@ -8,8 +8,6 @@ import kotlinx.coroutines.delay
 /**
  * Thrown when a sync operation fails after all retry attempts are exhausted.
  *
- * Extends [IllegalStateException] for backward compatibility with existing catch blocks.
- *
  * @property errorCategories All error categories encountered across all attempts.
  * @property attemptCount Total number of attempts made (including the initial attempt).
  */

@@ -36,7 +36,7 @@ internal class Config(
 	val maintenance: Maintenance = Maintenance(),
 	val lfs: Lfs = Lfs(),
 	@kotlinx.serialization.SerialName("exit_on_failure")
-	val exitOnFailure: Boolean = true, // Default true for backward compatibility
+	val exitOnFailure: Boolean = true,
 	val search: Search = Search(),
 ) {
 	companion object {
