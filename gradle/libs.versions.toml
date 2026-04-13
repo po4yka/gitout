@@ -1,7 +1,7 @@
 [versions]
 apollo = "4.4.2"
-kotlin = "2.3.10"
-kotlinx-serialization = "1.10.0"
+kotlin = "2.3.20"
+kotlinx-serialization = "1.11.0"
 kotlinx-coroutines = "1.10.2"
 okhttp = "5.3.2"
 telegram-bot = "6.3.0"
