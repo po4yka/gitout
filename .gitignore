@@ -2,6 +2,7 @@
 /.idea
 /.kotlin
 /.claude/worktrees/
+/.omc/
 /build
 
 # Backup files
