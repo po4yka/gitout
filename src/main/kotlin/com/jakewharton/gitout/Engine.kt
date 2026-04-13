@@ -811,7 +811,7 @@ internal class Engine(
 		singleBranchOnly: Boolean = false,
 		defaultBranch: String? = null,
         ): List<String> {
-                val command = mutableListOf("git")
+                val command = mutableListOf(GIT_EXECUTABLE)
 
 		// Prevent "dubious ownership" errors when repo dir has
 		// different owner (e.g. after container user mismatch)
@@ -905,7 +905,7 @@ internal class Engine(
 	private fun getHeadRef(repo: Path): String? {
 		return try {
 			val process = ProcessBuilder()
-				.command("git", "-C", repo.absolutePathString(), "rev-parse", "HEAD")
+				.command(GIT_EXECUTABLE, "-C", repo.absolutePathString(), "rev-parse", "HEAD")
 				.redirectError(ProcessBuilder.Redirect.PIPE)
 				.redirectOutput(ProcessBuilder.Redirect.PIPE)
 				.start()
@@ -937,7 +937,7 @@ internal class Engine(
 	private fun countCommitsBetween(repo: Path, beforeRef: String, afterRef: String): Int {
 		return try {
 			val process = ProcessBuilder()
-				.command("git", "-C", repo.absolutePathString(), "rev-list", "--count", "$beforeRef..$afterRef")
+				.command(GIT_EXECUTABLE, "-C", repo.absolutePathString(), "rev-list", "--count", "$beforeRef..$afterRef")
 				.redirectError(ProcessBuilder.Redirect.PIPE)
 				.redirectOutput(ProcessBuilder.Redirect.PIPE)
 				.start()
@@ -968,7 +968,7 @@ internal class Engine(
 	private fun countTotalCommits(repo: Path): Int {
 		return try {
 			val process = ProcessBuilder()
-				.command("git", "-C", repo.absolutePathString(), "rev-list", "--count", "--all")
+				.command(GIT_EXECUTABLE, "-C", repo.absolutePathString(), "rev-list", "--count", "--all")
 				.redirectError(ProcessBuilder.Redirect.PIPE)
 				.redirectOutput(ProcessBuilder.Redirect.PIPE)
 				.start()
@@ -1105,7 +1105,7 @@ internal class Engine(
 	 */
 	private fun detectDefaultBranch(url: String, credentials: Path?): String? {
 		return try {
-			val command = mutableListOf("git")
+			val command = mutableListOf(GIT_EXECUTABLE)
 			if (credentials != null) {
 				command.add("-c")
 				command.add("credential.helper=store --file=${credentials.absolutePathString()}")
@@ -1161,7 +1161,7 @@ internal class Engine(
 	private fun repairRefspecIfNeeded(repo: Path, defaultBranch: String) {
 		try {
 			val process = ProcessBuilder()
-				.command("git", "-C", repo.absolutePathString(),
+				.command(GIT_EXECUTABLE, "-C", repo.absolutePathString(),
 					"config", "--get-all", "remote.origin.fetch")
 				.redirectError(ProcessBuilder.Redirect.PIPE)
 				.redirectOutput(ProcessBuilder.Redirect.PIPE)
@@ -1193,13 +1193,13 @@ internal class Engine(
 
 			// Unset all existing fetch refspecs (exit 5 = key not found, acceptable)
 			ProcessBuilder()
-				.command("git", "-C", repo.absolutePathString(),
+				.command(GIT_EXECUTABLE, "-C", repo.absolutePathString(),
 					"config", "--unset-all", "remote.origin.fetch")
 				.start().waitFor(10, java.util.concurrent.TimeUnit.SECONDS)
 
 			// Set the correct refspec
 			val setProcess = ProcessBuilder()
-				.command("git", "-C", repo.absolutePathString(),
+				.command(GIT_EXECUTABLE, "-C", repo.absolutePathString(),
 					"config", "remote.origin.fetch", expectedRefspec)
 				.start()
 			setProcess.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)

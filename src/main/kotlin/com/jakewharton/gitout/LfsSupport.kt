@@ -24,7 +24,7 @@ internal class LfsSupport(
 	fun isLfsAvailable(): Boolean {
 		return try {
 			val process = ProcessBuilder()
-				.command("git", "lfs", "version")
+				.command(GIT_EXECUTABLE, "lfs", "version")
 				.redirectError(ProcessBuilder.Redirect.PIPE)
 				.redirectOutput(ProcessBuilder.Redirect.PIPE)
 				.start()
@@ -57,7 +57,7 @@ internal class LfsSupport(
 		// In a bare repo, we need to read via git show
 		return try {
 			val process = ProcessBuilder()
-				.command("git", "-C", repoPath.absolutePathString(), "show", "HEAD:.gitattributes")
+				.command(GIT_EXECUTABLE, "-C", repoPath.absolutePathString(), "show", "HEAD:.gitattributes")
 				.redirectError(ProcessBuilder.Redirect.PIPE)
 				.redirectOutput(ProcessBuilder.Redirect.PIPE)
 				.start()
@@ -87,7 +87,7 @@ internal class LfsSupport(
 		logger.info { "Fetching LFS objects for ${repoPath.fileName}" }
 
 		return try {
-			val command = listOf("git", "-C", repoPath.absolutePathString(), "lfs", "fetch", "--all")
+			val command = listOf(GIT_EXECUTABLE, "-C", repoPath.absolutePathString(), "lfs", "fetch", "--all")
 
 			val processBuilder = ProcessBuilder()
 				.command(command)

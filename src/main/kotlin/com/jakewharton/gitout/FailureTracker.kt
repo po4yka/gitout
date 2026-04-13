@@ -142,7 +142,7 @@ internal class FailureTracker(
 
 		// Check if we're still in cooldown period
 		val lastFailure = record.lastFailureTimestamp ?: return false
-		val cooldownMs = config.failureCooldownHours * 60 * 60 * 1000L
+		val cooldownMs = config.failureCooldownHours.toLong() * 60 * 60 * 1000
 		val timeSinceLastFailure = System.currentTimeMillis() - lastFailure
 
 		if (timeSinceLastFailure < cooldownMs) {
@@ -201,22 +201,20 @@ internal class FailureTracker(
 		if (!config.enabled) return
 
 		val now = System.currentTimeMillis()
-		var removed = 0
-		state.updateAndGet { current ->
-			val cleaned = current.repositories.filter { (name, record) ->
-				// Keep if repository is still active
-				if (name in activeRepos) return@filter true
-				// Keep if has recent activity
-				val lastActivity = maxOf(
-					record.lastFailureTimestamp ?: 0,
-					record.lastSuccessTimestamp ?: 0
-				)
-				now - lastActivity < maxAgeMs
-			}
-			removed = current.repositories.size - cleaned.size
-			if (removed > 0) current.copy(repositories = cleaned) else current
+		val previous = state.get()
+		val cleaned = previous.repositories.filter { (name, record) ->
+			// Keep if repository is still active
+			if (name in activeRepos) return@filter true
+			// Keep if has recent activity
+			val lastActivity = maxOf(
+				record.lastFailureTimestamp ?: 0,
+				record.lastSuccessTimestamp ?: 0
+			)
+			now - lastActivity < maxAgeMs
 		}
+		val removed = previous.repositories.size - cleaned.size
 		if (removed > 0) {
+			state.set(previous.copy(repositories = cleaned))
 			logger.info { "Cleaned up $removed stale failure records" }
 		}
 	}
