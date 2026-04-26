@@ -5,6 +5,8 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.Comparator
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.absolutePathString
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
@@ -21,8 +23,54 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeout
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
+
+/** Thrown for tasks that are skipped because the storage circuit breaker has tripped. */
+private class CircuitBreakerOpenException(msg: String) : IllegalStateException(msg)
+
+/**
+ * Tracks consecutive [ErrorCategory.STORAGE_ERROR] failures within a single sync run.
+ *
+ * Resets on any success or on any non-storage failure so that only an unbroken streak of
+ * storage errors trips the breaker. Once open, [isOpen] returns true for the remainder of
+ * the run and callers should short-circuit without touching storage.
+ *
+ * @param threshold Number of consecutive storage failures before the breaker opens.
+ */
+internal class StorageCircuitBreaker(private val threshold: Int) {
+	private val consecutiveStorageFailures = AtomicInteger(0)
+	private val circuitOpen = AtomicBoolean(false)
+
+	/** Returns true if the circuit breaker has tripped and the run should be aborted. */
+	fun isOpen(): Boolean = circuitOpen.get()
+
+	/**
+	 * Records a successful sync. Resets the consecutive failure counter.
+	 */
+	fun recordSuccess() {
+		consecutiveStorageFailures.set(0)
+	}
+
+	/**
+	 * Records a sync failure classified by [category].
+	 *
+	 * Only [ErrorCategory.STORAGE_ERROR] increments the streak; any other category resets it.
+	 * Returns true if this call caused the breaker to trip for the first time.
+	 */
+	fun recordFailure(category: ErrorCategory): Boolean {
+		if (category != ErrorCategory.STORAGE_ERROR) {
+			consecutiveStorageFailures.set(0)
+			return false
+		}
+		val count = consecutiveStorageFailures.incrementAndGet()
+		if (count >= threshold && circuitOpen.compareAndSet(false, true)) {
+			return true // tripped by this call
+		}
+		return false
+	}
+}
 
 internal class Engine(
 	private val config: Path,
@@ -138,6 +186,22 @@ internal class Engine(
 
 		check(dryRun || destination.exists() && destination.isDirectory()) {
 			"Destination must exist and must be a directory"
+		}
+
+		// Pre-flight storage health check: write/read/delete a sentinel file before any API calls.
+		// Aborts immediately with a single alert if the backup volume is dead, read-only, or EIO.
+		if (!dryRun && config.healthCheck.preflightEnabled) {
+			val timeoutMs = config.healthCheck.preflightTimeoutSeconds * 1000L
+			val checkResult = preflightStorageCheck(destination, timeoutMs)
+			if (checkResult.isFailure) {
+				val error = checkResult.exceptionOrNull()!!
+				logger.warn("Pre-flight storage check failed for $destination: ${error.message}")
+				telegramService.safeNotify("preflight failure") {
+					notifyPreflightFailure(destination, error)
+				}
+				throw IllegalStateException("Pre-flight storage check failed: ${error.message}")
+			}
+			logger.debug { "Pre-flight storage check passed for $destination" }
 		}
 
 		// Setup SSL certificates
@@ -398,7 +462,7 @@ internal class Engine(
 		// Execute all sync tasks in parallel with worker pool
 		// Use try-finally to guarantee credentials cleanup even on exceptions
 		try {
-			executeSyncTasksInParallel(syncTasks, workerPoolSize, dryRun, config.exitOnFailure)
+			executeSyncTasksInParallel(syncTasks, workerPoolSize, dryRun, config.exitOnFailure, config.healthCheck)
 		} finally {
 			// Clean up credentials file immediately after sync completes (or fails)
 			githubCredentials?.let { credPath ->
@@ -436,6 +500,7 @@ internal class Engine(
 		workerPoolSize: Int,
 		dryRun: Boolean,
 		exitOnFailure: Boolean,
+		healthCheckConfig: Config.HealthCheckConfig = Config.HealthCheckConfig(),
 		destinationRoot: Path = destination,
 	) {
 		if (tasks.isEmpty()) {
@@ -472,10 +537,29 @@ internal class Engine(
 			logger.info { "Found $largeRepoCount large repositories (>${largeRepoConfig.sizeThresholdKb / 1024} MB), limiting to ${largeRepoConfig.maxParallel} concurrent" }
 		}
 
+		// Circuit breaker: trips after N consecutive STORAGE_ERROR failures to prevent error storms
+		val circuitBreaker = if (healthCheckConfig.circuitBreakerEnabled) {
+			StorageCircuitBreaker(healthCheckConfig.circuitBreakerThreshold)
+		} else {
+			null
+		}
+
 		// Execute all tasks in parallel with worker pool limit
 		coroutineScope {
 			tasks.map { task ->
 				async(Dispatchers.IO) {
+					// Short-circuit if the storage circuit breaker has tripped
+					if (circuitBreaker?.isOpen() == true) {
+						return@async SyncResult(
+							task,
+							success = false,
+							error = CircuitBreakerOpenException(
+								"Storage circuit breaker is open; skipping ${task.name} to prevent error storm",
+							),
+							durationMs = 0,
+						)
+					}
+
 					// Check if we should skip this repo based on failure history
 					if (!dryRun && failureTracker?.shouldSkip(task.name) == true) {
 						logger.info { "Skipping ${task.name} due to repeated failures (in cooldown period)" }
@@ -516,10 +600,11 @@ internal class Engine(
 							val taskDuration = System.currentTimeMillis() - taskStartTime
 							logger.lifecycle { "Completed sync: ${task.url}" }
 
-							// Record success in failure tracker
+							// Record success in failure tracker and circuit breaker
 							if (!dryRun) {
 								failureTracker?.recordSuccess(task.name)
 							}
+							circuitBreaker?.recordSuccess()
 
 							// Run post-sync maintenance (gc/repack/commit-graph)
 							if (!dryRun) {
@@ -560,12 +645,27 @@ internal class Engine(
 								failureTracker?.recordFailure(task.name, errorMsg, errorCategory)
 							}
 
-							// Send immediate error notification
-                                                        if (!dryRun) {
-                                                                telegramService.safeNotify("sync error") {
-                                                                        notifySyncError(task.name, task.url, errorMsg, errorCategory, retryAttempts)
-                                                                }
-                                                        }
+							// Record failure in circuit breaker; send one notification if it just tripped
+							val justTripped = circuitBreaker?.recordFailure(errorCategory) == true
+							if (justTripped) {
+								logger.warn(
+									"Circuit breaker opened: ${healthCheckConfig.circuitBreakerThreshold} consecutive " +
+										"STORAGE_ERROR failures. Cancelling remaining sync tasks to prevent error storm.",
+								)
+								telegramService.safeNotify("circuit breaker") {
+									notifyCircuitBreakerTripped(
+										healthCheckConfig.circuitBreakerThreshold,
+										errorMsg.lines().lastOrNull { it.isNotBlank() }?.trim() ?: errorMsg,
+									)
+								}
+							}
+
+							// Send immediate per-task error notification (skip for circuit-breaker-open tasks)
+							if (!dryRun && e !is CircuitBreakerOpenException) {
+								telegramService.safeNotify("sync error") {
+									notifySyncError(task.name, task.url, errorMsg, errorCategory, retryAttempts)
+								}
+							}
 
 							SyncResult(task, success = false, error = e, durationMs = taskDuration)
 						} finally {
@@ -604,33 +704,82 @@ internal class Engine(
 
 		if (failed > 0) {
 			logger.warn("Failed repositories:")
-			val failedResults = results.filter { !it.success }.map { result ->
-				val err = result.error
-				// Use the original cause message for SyncFailureException so Telegram shows the actual git error
-				val errorMsg = (err as? SyncFailureException)?.cause?.message ?: err?.message ?: "Unknown error"
-				logger.warn("  - ${result.task.name} (${result.task.url}): $errorMsg")
-				FailedRepoSummary(
-					name = result.task.name,
-					url = result.task.url,
-					errorMessage = errorMsg,
-					category = (err as? SyncFailureException)?.errorCategories?.lastOrNull()
-						?: ErrorCategory.classify(errorMsg),
-					retryAttempts = (err as? SyncFailureException)?.attemptCount ?: 1,
-				)
+			// Exclude circuit-breaker-skipped tasks from the error summary — they were not real failures
+			val realFailedResults = results
+				.filter { !it.success && it.error !is CircuitBreakerOpenException }
+				.map { result ->
+					val err = result.error
+					// Use the original cause message for SyncFailureException so Telegram shows the actual git error
+					val errorMsg = (err as? SyncFailureException)?.cause?.message ?: err?.message ?: "Unknown error"
+					logger.warn("  - ${result.task.name} (${result.task.url}): $errorMsg")
+					FailedRepoSummary(
+						name = result.task.name,
+						url = result.task.url,
+						errorMessage = errorMsg,
+						category = (err as? SyncFailureException)?.errorCategories?.lastOrNull()
+							?: ErrorCategory.classify(errorMsg),
+						retryAttempts = (err as? SyncFailureException)?.attemptCount ?: 1,
+					)
+				}
+
+			val circuitBreakerSkipped = results.count { !it.success && it.error is CircuitBreakerOpenException }
+			if (circuitBreakerSkipped > 0) {
+				logger.warn("  ($circuitBreakerSkipped repositories skipped by circuit breaker)")
 			}
 
 			// Send Telegram notification about errors
-                        telegramService.safeNotify("sync errors summary") {
-                                notifyErrors(failedResults)
-                        }
+			telegramService.safeNotify("sync errors summary") {
+				notifyErrors(realFailedResults)
+			}
 
-			val errorMessage = "$failed out of ${tasks.size} repositories failed to synchronize"
-			logger.warn(errorMessage)
+			val realFailed = realFailedResults.size
+			if (realFailed > 0) {
+				val errorMessage = "$realFailed out of ${tasks.size} repositories failed to synchronize"
+				logger.warn(errorMessage)
 
-			if (exitOnFailure) {
-				throw IllegalStateException(errorMessage)
+				if (exitOnFailure) {
+					throw IllegalStateException(errorMessage)
+				}
+			} else if (circuitBreakerSkipped > 0) {
+				// All non-skipped tasks are accounted for; surface the circuit-breaker abort
+				val errorMessage = "Sync aborted: storage circuit breaker tripped after ${healthCheckConfig.circuitBreakerThreshold} consecutive failures ($circuitBreakerSkipped tasks skipped)"
+				logger.warn(errorMessage)
+				if (exitOnFailure) {
+					throw IllegalStateException(errorMessage)
+				}
 			}
 			// Otherwise continue without throwing - container keeps running
+		}
+	}
+
+	/**
+	 * Verifies that [root] is a writable directory by writing a sentinel file, reading it back,
+	 * and deleting it. The entire operation is bounded by [timeoutMs]; a hung filesystem that
+	 * blocks on write will be detected as a failure rather than stalling indefinitely.
+	 *
+	 * @return [Result.success] on full write-read-delete success, [Result.failure] on any I/O
+	 *         problem, content mismatch, or timeout.
+	 */
+	internal suspend fun preflightStorageCheck(root: Path, timeoutMs: Long): Result<Unit> = runCatching {
+		withTimeout(timeoutMs) {
+			check(root.exists()) { "Backup destination does not exist: $root" }
+			check(root.isDirectory()) { "Backup destination is not a directory: $root" }
+
+			val threadId = Thread.currentThread().id
+			val nanos = System.nanoTime()
+			val sentinelName = ".gitout-preflight-$threadId-$nanos"
+			val sentinel = root.resolve(sentinelName)
+			val payload = "gitout-preflight:$threadId:$nanos"
+
+			try {
+				sentinel.writeText(payload)
+				val readBack = sentinel.readText()
+				check(readBack == payload) {
+					"Preflight sentinel content mismatch: expected '$payload', got '$readBack'"
+				}
+			} finally {
+				Files.deleteIfExists(sentinel)
+			}
 		}
 	}
 

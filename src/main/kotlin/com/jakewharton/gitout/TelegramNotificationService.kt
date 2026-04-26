@@ -954,6 +954,82 @@ internal class TelegramNotificationService(
 	}
 
 	/**
+	 * Sends a single notification when the pre-flight storage check fails before sync starts.
+	 *
+	 * The message describes the likely cause (unmounted volume, read-only filesystem, hardware
+	 * EIO) and directs the operator to `dmesg` and mount status for diagnosis.
+	 *
+	 * @param destination Path that was being checked (the backup root directory).
+	 * @param error The exception that caused the pre-flight check to fail.
+	 */
+	internal fun notifyPreflightFailure(destination: java.nio.file.Path, error: Throwable) {
+		if (!isEnabled()) return
+
+		val errorDetail = error.message?.let { escapeHtml(it) } ?: "unknown error"
+		val message = buildString {
+			appendLine("<b>GitOut Pre-flight Storage Check Failed</b>")
+			appendLine()
+			appendLine("The backup volume failed the pre-flight write/read test. The sync has been aborted.")
+			appendLine()
+			appendLine("<b>Destination:</b> <code>${escapeHtml(destination.toString())}</code>")
+			appendLine()
+			appendLine("<b>Error:</b>")
+			appendLine("<code>$errorDetail</code>")
+			appendLine()
+			appendLine("<b>Likely causes:</b>")
+			appendLine("• Backup volume is unmounted or missing")
+			appendLine("• Filesystem is read-only (hardware error or ext4 remount-ro)")
+			appendLine("• Block device is returning I/O errors (EIO)")
+			appendLine()
+			appendLine("<b>Next steps:</b>")
+			appendLine("1. Run <code>dmesg | tail -50</code> and look for I/O errors")
+			appendLine("2. Check <code>mount | grep ${escapeHtml(destination.toString())}</code>")
+			appendLine("3. Verify the disk is healthy with <code>smartctl -a &lt;device&gt;</code>")
+			appendLine()
+			appendLine("Timestamp: ${getCurrentTimestamp()}")
+		}
+
+		sendMessage(message, "preflight failure")
+	}
+
+	/**
+	 * Sends a single notification when the consecutive-failure circuit breaker trips mid-run.
+	 *
+	 * Explains that gitout aborted remaining tasks to prevent thousands of identical error
+	 * messages caused by a shared storage fault.
+	 *
+	 * @param consecutiveFailures Number of consecutive storage failures that tripped the breaker.
+	 * @param sample A representative error line from the last failure.
+	 */
+	internal fun notifyCircuitBreakerTripped(consecutiveFailures: Int, sample: String) {
+		if (!isEnabled()) return
+
+		val message = buildString {
+			appendLine("<b>GitOut Circuit Breaker Tripped — Sync Aborted</b>")
+			appendLine()
+			appendLine(
+				"GitOut detected $consecutiveFailures consecutive storage failures with the same root cause " +
+					"and has aborted the remaining sync tasks to prevent an error storm.",
+			)
+			appendLine()
+			appendLine("<b>Sample error:</b>")
+			appendLine("<code>${escapeHtml(sample.take(300))}</code>")
+			appendLine()
+			appendLine("<b>What this means:</b>")
+			appendLine("All failures share a common storage-level cause (e.g. hardware I/O error, unmounted volume, read-only filesystem). Continuing would produce hundreds of identical failures and notifications.")
+			appendLine()
+			appendLine("<b>Next steps:</b>")
+			appendLine("1. Run <code>dmesg | tail -50</code> and look for I/O errors")
+			appendLine("2. Verify the backup volume is mounted and healthy")
+			appendLine("3. Fix the underlying storage issue and re-run gitout")
+			appendLine()
+			appendLine("Timestamp: ${getCurrentTimestamp()}")
+		}
+
+		sendMessage(message, "circuit breaker")
+	}
+
+	/**
 	 * Sends a summary notification about all repository changes.
 	 */
 	internal fun notifyRepositoryChangesSummary(changes: RepositoryChanges) {

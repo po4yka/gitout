@@ -33,6 +33,8 @@ internal class Config(
 	val largeRepos: LargeRepoConfig = LargeRepoConfig(),
 	@kotlinx.serialization.SerialName("failure_tracking")
 	val failureTracking: FailureTrackingConfig = FailureTrackingConfig(),
+	@kotlinx.serialization.SerialName("health_check")
+	val healthCheck: HealthCheckConfig = HealthCheckConfig(),
 	val maintenance: Maintenance = Maintenance(),
 	val lfs: Lfs = Lfs(),
 	@kotlinx.serialization.SerialName("exit_on_failure")
@@ -432,6 +434,29 @@ internal class Config(
 		val failureCooldownHours: Int = 24, // Hours to wait before retrying consistently failing repos
 		@kotlinx.serialization.SerialName("auto_skip_failing")
 		val autoSkipFailing: Boolean = false, // Automatically skip repos that consistently fail
+	)
+
+	/**
+	 * Configuration for storage health checks and the consecutive-failure circuit breaker.
+	 *
+	 * The pre-flight check writes and reads back a sentinel file on the backup volume before
+	 * any GitHub API calls are made. If it fails, the entire sync is aborted with a single
+	 * alert rather than grinding through every repository.
+	 *
+	 * The circuit breaker trips when a configurable number of consecutive [ErrorCategory.STORAGE_ERROR]
+	 * failures occur mid-run, preventing an error storm caused by a shared infrastructure fault.
+	 */
+	@Poko
+	@Serializable
+	class HealthCheckConfig(
+		@kotlinx.serialization.SerialName("preflight_enabled")
+		val preflightEnabled: Boolean = true,
+		@kotlinx.serialization.SerialName("preflight_timeout_seconds")
+		val preflightTimeoutSeconds: Int = 5,
+		@kotlinx.serialization.SerialName("circuit_breaker_enabled")
+		val circuitBreakerEnabled: Boolean = true,
+		@kotlinx.serialization.SerialName("circuit_breaker_threshold")
+		val circuitBreakerThreshold: Int = 10,
 	)
 
 	@Poko

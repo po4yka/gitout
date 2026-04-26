@@ -229,6 +229,42 @@ class ErrorCategoryTest {
 			.isEqualTo(ErrorCategory.STORAGE_ERROR)
 	}
 
+	@Test fun `unable to sync with I_O error classified as STORAGE_ERROR`() {
+		assertThat(classify("Unable to sync https://github.com/foo/bar.git into /data/github/clone/foo: I/O error"))
+			.isEqualTo(ErrorCategory.STORAGE_ERROR)
+	}
+
+	@Test fun `path with I_O error classified as STORAGE_ERROR`() {
+		assertThat(classify("/data/github/clone/foo: I/O error"))
+			.isEqualTo(ErrorCategory.STORAGE_ERROR)
+	}
+
+	@Test fun `input output error classified as STORAGE_ERROR`() {
+		assertThat(classify("Input/output error"))
+			.isEqualTo(ErrorCategory.STORAGE_ERROR)
+	}
+
+	@Test fun `read only file system classified as STORAGE_ERROR`() {
+		assertThat(classify("cannot create directory: Read-only file system"))
+			.isEqualTo(ErrorCategory.STORAGE_ERROR)
+	}
+
+	@Test fun `structure needs cleaning classified as STORAGE_ERROR`() {
+		assertThat(classify("Structure needs cleaning"))
+			.isEqualTo(ErrorCategory.STORAGE_ERROR)
+	}
+
+	@Test fun `stale file handle classified as STORAGE_ERROR`() {
+		assertThat(classify("Stale file handle"))
+			.isEqualTo(ErrorCategory.STORAGE_ERROR)
+	}
+
+	@Test fun `STORAGE_ERROR is not retryable for I_O error`() {
+		with(ErrorCategory.Companion) {
+			assertThat(ErrorCategory.STORAGE_ERROR.isRetryable()).isEqualTo(false)
+		}
+	}
+
 	// --- False positive guards for 429 and 403 ---
 
 	@Test fun `repo name containing 429 not classified as RATE_LIMIT`() {

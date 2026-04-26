@@ -59,6 +59,11 @@ internal enum class ErrorCategory {
 	 * Examples:
 	 * - "No space left on device"
 	 * - "Disk quota exceeded"
+	 * - "Unable to sync … into …: I/O error" (ext4 EIO on bad inode/USB SSD)
+	 * - "Input/output error" (kernel EIO surfaced by block device)
+	 * - "Read-only file system" (kernel remount-ro after corruption)
+	 * - "Structure needs cleaning" (ext filesystem requiring fsck)
+	 * - "Stale file handle" (NFS-style stale mount or USB disconnect)
 	 */
 	STORAGE_ERROR,
 
@@ -173,11 +178,16 @@ internal enum class ErrorCategory {
 				return SSL_ERROR
 			}
 
-			// Storage errors
+			// Storage errors (disk space, filesystem I/O, mount issues)
 			if (lowerMessage.contains("no space left") ||
 				lowerMessage.contains("disk quota") ||
 				lowerMessage.contains("cannot allocate") ||
-				lowerMessage.contains("out of memory")) {
+				lowerMessage.contains("out of memory") ||
+				lowerMessage.contains("i/o error") ||
+				lowerMessage.contains("input/output error") ||
+				lowerMessage.contains("read-only file system") ||
+				lowerMessage.contains("structure needs cleaning") ||
+				lowerMessage.contains("stale file handle")) {
 				return STORAGE_ERROR
 			}
 
@@ -257,7 +267,7 @@ internal enum class ErrorCategory {
 			TIMEOUT -> "Operation timed out. The repository may be large or the connection slow. Consider increasing timeout."
 			AUTH_ERROR -> "Verify your credentials and token permissions. Ensure the token hasn't expired."
 			REPOSITORY_ERROR -> "Verify the repository exists and the URL is correct. Check if it has been deleted, moved, or emptied."
-			STORAGE_ERROR -> "Free up disk space on your system. Consider archiving or removing old backups."
+			STORAGE_ERROR -> "Free up disk space on your system. Consider archiving or removing old backups. Verify the backup volume is mounted and the filesystem is not in read-only or error state. Check `dmesg` for I/O errors."
 			SSL_ERROR -> "Check SSL certificate configuration. Verify system certificates are up to date or configure cert_file in config."
 			RATE_LIMIT -> "Wait before retrying. Consider reducing sync frequency or using authentication to increase rate limits."
 			UNKNOWN -> "Check the error message for details. Verify your configuration and network connectivity."

@@ -262,4 +262,42 @@ class ConfigTest {
 		assertThat(errors.filterIsInstance<ValidationError.EmptyQdrantUrl>()).isEmpty()
 		assertThat(errors.filterIsInstance<ValidationError.EmptyCollectionName>()).isEmpty()
 	}
+
+	@Test fun healthCheckDefaultsWhenBlockOmitted() {
+		val config = Config.parse("version = 0")
+		val hc = config.healthCheck
+		assertThat(hc.preflightEnabled).isEqualTo(true)
+		assertThat(hc.preflightTimeoutSeconds).isEqualTo(5)
+		assertThat(hc.circuitBreakerEnabled).isEqualTo(true)
+		assertThat(hc.circuitBreakerThreshold).isEqualTo(10)
+	}
+
+	@Test fun healthCheckBlockOverridesAllFields() {
+		val toml = """
+			|version = 0
+			|
+			|[health_check]
+			|preflight_enabled = false
+			|preflight_timeout_seconds = 30
+			|circuit_breaker_enabled = false
+			|circuit_breaker_threshold = 25
+			""".trimMargin()
+		val config = Config.parse(toml)
+		val hc = config.healthCheck
+		assertThat(hc.preflightEnabled).isEqualTo(false)
+		assertThat(hc.preflightTimeoutSeconds).isEqualTo(30)
+		assertThat(hc.circuitBreakerEnabled).isEqualTo(false)
+		assertThat(hc.circuitBreakerThreshold).isEqualTo(25)
+	}
+
+	@Test fun healthCheckRoundTripsAsDataClass() {
+		val expected = Config.HealthCheckConfig(
+			preflightEnabled = false,
+			preflightTimeoutSeconds = 15,
+			circuitBreakerEnabled = true,
+			circuitBreakerThreshold = 5,
+		)
+		val config = Config(version = 0, healthCheck = expected)
+		assertThat(config.healthCheck).isEqualTo(expected)
+	}
 }
