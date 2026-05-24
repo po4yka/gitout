@@ -26,6 +26,7 @@ import io.github.kevincianfarini.cardiologist.PulseSchedule
 import io.github.kevincianfarini.cardiologist.schedulePulse
 import java.nio.file.FileSystem
 import java.nio.file.FileSystems
+import java.util.concurrent.TimeUnit
 import kotlin.io.path.readText
 import kotlin.time.Clock
 import kotlin.time.Duration
@@ -113,6 +114,9 @@ private class GitOutCommand(
 		val logger = Logger(quiet, verbosity)
 
 		val client = OkHttpClient.Builder()
+			.callTimeout(5, TimeUnit.MINUTES)
+			.readTimeout(60, TimeUnit.SECONDS)
+			.writeTimeout(60, TimeUnit.SECONDS)
 			.addNetworkInterceptor(
 				HttpLoggingInterceptor {
 					logger.trace { it }
