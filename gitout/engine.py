@@ -15,7 +15,7 @@ import contextlib
 import os
 import tempfile
 import time
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import quote
@@ -365,32 +365,25 @@ class Engine:
 
         return breaker, tracker, maint, lfs
 
-    async def perform_sync(self, dry_run: bool = False) -> list[SyncOutcome]:
-        if self.config.version != 0:
-            raise ValueError("Only version 0 of the config is supported at this time")
-        if not dry_run and not self.destination.is_dir():
-            raise ValueError("Destination must exist and must be a directory")
-
-        started_check = None
-        if not dry_run and self.health_check is not None:
-            started_check = await self.health_check.start()
-
-        # Storage pre-flight: abort the whole run with one error rather than failing
-        # every repository when the backup volume is full / read-only / unmounted.
+    async def _run_preflight(self) -> None:
+        """Abort the run early if the backup volume is full / read-only / unmounted."""
         hc = self.config.health_check
-        if not dry_run and hc.preflight_enabled:
-            message = await preflight_storage_check(
-                self.destination, hc.preflight_timeout_seconds * 1000
-            )
-            if message is not None:
-                raise RuntimeError(f"Storage pre-flight check failed: {message}")
+        if not hc.preflight_enabled:
+            return
+        message = await preflight_storage_check(
+            self.destination, hc.preflight_timeout_seconds * 1000
+        )
+        if message is not None:
+            raise RuntimeError(f"Storage pre-flight check failed: {message}")
 
-        user_repos = await self._discover()
+    @contextlib.asynccontextmanager
+    async def _credentials_scope(self, dry_run: bool) -> AsyncIterator[str | None]:
+        """Yield the effective credentials_path; create a temp file when needed.
 
-        excluded_names: set[str] = set()
-        if not dry_run and self.config.github is not None and user_repos is not None:
-            excluded_names = self._apply_state_tracking(user_repos)
-
+        No temp file is created during a dry run. The temp file (if created) is
+        always deleted on exit, even on exception, using ``contextlib.suppress(OSError)``
+        to match the original finally guard.
+        """
         credentials_path = self.credentials_path
         temp_credentials: Path | None = None
         if (
@@ -401,8 +394,116 @@ class Engine:
         ):
             temp_credentials = _write_credentials(self.config.github.user, self._token)
             credentials_path = str(temp_credentials)
-
         try:
+            yield credentials_path
+        finally:
+            if temp_credentials is not None:
+                with contextlib.suppress(OSError):
+                    temp_credentials.unlink()
+
+    async def _run_workers(
+        self,
+        tasks: list[SyncTask],
+        breaker: StorageCircuitBreaker | None,
+        tracker: FailureTracker | None,
+        maint: RepositoryMaintenance | None,
+        lfs: LfsSupport | None,
+    ) -> list[SyncOutcome]:
+        """Run all sync tasks in parallel under the configured semaphore limits."""
+        worker_count = self.workers or self.config.parallelism.workers
+        semaphore = asyncio.Semaphore(worker_count)
+        large_repo_semaphore = asyncio.Semaphore(self.config.large_repos.max_parallel)
+
+        if self.telegram is not None:
+            self.telegram.notify_sync_start(len(tasks), worker_count)
+        start_time = time.monotonic()
+
+        async def run(task: SyncTask) -> SyncOutcome:
+            # Checked before acquiring a permit so queued tasks skip once tripped.
+            if breaker is not None and breaker.is_open():
+                return SyncOutcome(
+                    task=task, ok=False, skipped=True, error="storage circuit breaker open"
+                )
+            if tracker is not None and tracker.should_skip(task.name):
+                return SyncOutcome(task=task, ok=True, skipped=True)
+            async with semaphore:
+                return await self._sync_one(
+                    task, breaker, tracker, maint, lfs, large_repo_semaphore
+                )
+
+        results = list(await asyncio.gather(*(run(t) for t in tasks)))
+        self._report_to_telegram(results, start_time)
+        return results
+
+    def _report_to_telegram(
+        self,
+        results: list[SyncOutcome],
+        start_time: float,
+    ) -> None:
+        """Send completion notification and record per-repo failures to Telegram."""
+        if self.telegram is None:
+            return
+        successful = sum(1 for outcome in results if outcome.ok)
+        self.telegram.notify_sync_completion(
+            successful, len(results) - successful, int(time.monotonic() - start_time)
+        )
+        self.telegram.record_failures(
+            [
+                FailedRepoSummary(
+                    name=outcome.task.name,
+                    url=outcome.task.url,
+                    error_message=outcome.error or "",
+                    category=display_name(outcome.category)
+                    if outcome.category is not None
+                    else display_name(classify(outcome.error or "")),
+                    retry_attempts=outcome.attempts,
+                )
+                for outcome in results
+                if not outcome.ok and not outcome.skipped
+            ]
+        )
+
+    async def _finalize(
+        self,
+        results: list[SyncOutcome],
+        tracker: FailureTracker | None,
+        maint: RepositoryMaintenance | None,
+        user_repos: UserRepositories | None,
+    ) -> None:
+        """Persist failure state, run full repack if due, and auto-index for search."""
+        if tracker is not None:
+            tracker.save_state()
+        if maint is not None and maint.register_sync_and_check_repack():
+            await asyncio.to_thread(maint.run_full_repack, self.destination)
+        if (
+            self.search_index_service is not None
+            and self.config.search.auto_index
+            and user_repos is not None
+        ):
+            await self.search_index_service.index_repositories(
+                user_repos.metadata, self.destination / "github" / "clone"
+            )
+
+    async def perform_sync(self, dry_run: bool = False) -> list[SyncOutcome]:
+        if self.config.version != 0:
+            raise ValueError("Only version 0 of the config is supported at this time")
+        if not dry_run and not self.destination.is_dir():
+            raise ValueError("Destination must exist and must be a directory")
+
+        started_check = None
+        if not dry_run and self.health_check is not None:
+            started_check = await self.health_check.start()
+
+        if not dry_run:
+            await self._run_preflight()
+
+        user_repos = await self._discover()
+
+        excluded_names: set[str] = set()
+        if not dry_run and self.config.github is not None and user_repos is not None:
+            excluded_names = self._apply_state_tracking(user_repos)
+
+        async with self._credentials_scope(dry_run) as credentials_path:
             tasks = collect_sync_tasks(
                 self.config, self.destination, user_repos, credentials_path, excluded_names
             )
@@ -411,72 +512,12 @@ class Engine:
                 return [SyncOutcome(task=t, ok=True) for t in tasks]
 
             breaker, tracker, maint, lfs = self._build_collaborators()
-            worker_count = self.workers or self.config.parallelism.workers
-            semaphore = asyncio.Semaphore(worker_count)
-            # Additional limit on concurrent large-repo clones.
-            large_repo_semaphore = asyncio.Semaphore(self.config.large_repos.max_parallel)
+            results = await self._run_workers(tasks, breaker, tracker, maint, lfs)
+            await self._finalize(results, tracker, maint, user_repos)
 
-            if self.telegram is not None:
-                self.telegram.notify_sync_start(len(tasks), worker_count)
-            start_time = time.monotonic()
-
-            async def run(task: SyncTask) -> SyncOutcome:
-                # Checked before acquiring a permit so queued tasks skip once tripped.
-                if breaker is not None and breaker.is_open():
-                    return SyncOutcome(
-                        task=task, ok=False, skipped=True, error="storage circuit breaker open"
-                    )
-                if tracker is not None and tracker.should_skip(task.name):
-                    return SyncOutcome(task=task, ok=True, skipped=True)
-                async with semaphore:
-                    return await self._sync_one(
-                        task, breaker, tracker, maint, lfs, large_repo_semaphore
-                    )
-
-            results = list(await asyncio.gather(*(run(t) for t in tasks)))
-
-            if self.telegram is not None:
-                successful = sum(1 for outcome in results if outcome.ok)
-                self.telegram.notify_sync_completion(
-                    successful, len(results) - successful, int(time.monotonic() - start_time)
-                )
-                self.telegram.record_failures(
-                    [
-                        FailedRepoSummary(
-                            name=outcome.task.name,
-                            url=outcome.task.url,
-                            error_message=outcome.error or "",
-                            category=display_name(outcome.category)
-                            if outcome.category is not None
-                            else display_name(classify(outcome.error or "")),
-                            retry_attempts=outcome.attempts,
-                        )
-                        for outcome in results
-                        if not outcome.ok and not outcome.skipped
-                    ]
-                )
-
-            if tracker is not None:
-                tracker.save_state()
-            if maint is not None and maint.register_sync_and_check_repack():
-                await asyncio.to_thread(maint.run_full_repack, self.destination)
-
-            # Auto-index for semantic search, then signal the healthcheck.
-            if (
-                self.search_index_service is not None
-                and self.config.search.auto_index
-                and user_repos is not None
-            ):
-                await self.search_index_service.index_repositories(
-                    user_repos.metadata, self.destination / "github" / "clone"
-                )
             if started_check is not None:
                 await started_check.complete()
             return results
-        finally:
-            if temp_credentials is not None:
-                with contextlib.suppress(OSError):
-                    temp_credentials.unlink()
 
     async def _sync_one(
         self,
