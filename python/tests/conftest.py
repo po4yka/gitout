@@ -1,19 +1,19 @@
-"""Shared test fixtures and helpers for the characterization suite."""
+"""Shared pytest fixtures for the characterization suite.
+
+Collection-time helpers (e.g. ``load_json`` used inside ``parametrize``) live in
+``tests.helpers`` so they can be imported directly; this module exposes them as
+fixtures for in-test use.
+"""
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Any
 
 import pytest
 
-FIXTURES = Path(__file__).parent / "fixtures"
+from tests.helpers import FIXTURES, load_json
 
-
-def load_json(*parts: str) -> Any:
-    """Load a JSON fixture relative to ``tests/fixtures``."""
-    return json.loads((FIXTURES.joinpath(*parts)).read_text())
+__all__ = ["load_json"]
 
 
 @pytest.fixture
