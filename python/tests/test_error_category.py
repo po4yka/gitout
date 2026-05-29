@@ -12,10 +12,6 @@ from gitout import errors
 from gitout.errors import ErrorCategory
 from tests.helpers import load_json
 
-pytestmark = pytest.mark.xfail(
-    reason="gitout.errors not implemented (Phase 1)", strict=False, raises=NotImplementedError
-)
-
 _CLASSIFY = load_json("error_category", "classify_cases.json")["cases"]
 _PROPERTIES = load_json("error_category", "properties.json")["categories"]
 
