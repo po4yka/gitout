@@ -50,4 +50,51 @@ def build_git_command(
     default_branch: str | None = None,
 ) -> list[str]:
     """Build the full ``git`` argv for a clone or update of a single repository."""
-    raise NotImplementedError("Phase 1: port Engine.buildGitCommand")
+    command = [git_executable]
+
+    # Prevent "dubious ownership" errors when the repo dir has a different owner.
+    command += ["-c", "safe.directory=*"]
+
+    if not verify_certificates:
+        command += ["-c", "http.sslVerify=false"]
+
+    if force_http1 or http_version == "HTTP/1.1":
+        command += ["-c", "http.version=HTTP/1.1"]
+
+    command += ["-c", f"http.postBuffer={post_buffer_size}"]
+
+    if low_speed_limit > 0:
+        command += [
+            "-c",
+            f"http.lowSpeedLimit={low_speed_limit}",
+            "-c",
+            f"http.lowSpeedTime={low_speed_time}",
+        ]
+
+    if credentials_path is not None:
+        command += ["-c", f"credential.helper=store --file={credentials_path}"]
+
+    if not repo_exists:
+        if url is None or repo_name is None:
+            raise ValueError("url and repo_name are required to clone a repository")
+        if use_shallow_clone:
+            command += ["clone", "--depth=1", "--single-branch"]
+            if show_progress:
+                command.append("--progress")
+        elif single_branch_only:
+            command += ["clone", "--bare", "--single-branch"]
+            if default_branch is not None:
+                command += ["--branch", default_branch]
+            if show_progress:
+                command.append("--progress")
+        else:
+            command += ["clone", "--mirror"]
+            if show_progress:
+                command.append("--progress")
+        command += ["--", url, repo_name]
+    elif single_branch_only:
+        command += ["fetch", "--prune", "origin"]
+    else:
+        command += ["remote", "update", "--prune"]
+
+    return command

@@ -11,12 +11,6 @@ import pytest
 from gitout import git_commands
 from tests.helpers import load_json
 
-pytestmark = pytest.mark.xfail(
-    reason="gitout.git_commands not implemented (Phase 1)",
-    strict=False,
-    raises=NotImplementedError,
-)
-
 _CASES = load_json("git_commands", "argv_cases.json")["cases"]
 
 
