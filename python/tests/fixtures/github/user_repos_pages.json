@@ -1,0 +1,208 @@
+{
+  "_source": "Captured from GitHub.kt::loadRepositories and the UserRepos query in src/main/graphql/GitHub.graphql. `pages` are successive GraphQL `data` payloads; `parse_user_repositories(pages)` must fold them into `expected`. Dedupe rules: owned and gist metadata overwrite unconditionally; starred/watching metadata only fill gaps (owned takes priority). A name is added to the starred/watching SET even when its metadata stays owned.",
+  "pages": [
+    {
+      "user": {
+        "ownedRepositories": {
+          "ownedEdges": [
+            {
+              "cursor": "o1",
+              "node": {
+                "nameWithOwner": "octocat/repo-a",
+                "isArchived": false,
+                "isPrivate": false,
+                "isFork": false,
+                "visibility": "PUBLIC",
+                "description": "Primary repo A",
+                "updatedAt": "2024-01-15T10:00:00Z",
+                "diskUsage": 1024,
+                "defaultBranchRef": {"name": "main"},
+                "repositoryTopics": {"nodes": [{"topic": {"name": "cli"}}, {"topic": {"name": "backup"}}]},
+                "primaryLanguage": {"name": "Kotlin"}
+              }
+            },
+            {
+              "cursor": "o2",
+              "node": {
+                "nameWithOwner": "octocat/repo-b",
+                "isArchived": true,
+                "isPrivate": true,
+                "isFork": false,
+                "visibility": "PRIVATE",
+                "description": null,
+                "updatedAt": "2023-09-01T08:30:00Z",
+                "diskUsage": null,
+                "defaultBranchRef": null,
+                "repositoryTopics": {"nodes": []},
+                "primaryLanguage": null
+              }
+            }
+          ]
+        },
+        "starredRepositories": {
+          "starredEdges": [
+            {
+              "cursor": "s1",
+              "node": {
+                "nameWithOwner": "other/star-1",
+                "isArchived": false,
+                "isPrivate": false,
+                "isFork": true,
+                "visibility": "PUBLIC",
+                "description": "A starred repo",
+                "updatedAt": "2024-02-02T00:00:00Z",
+                "diskUsage": 50,
+                "defaultBranchRef": {"name": "master"},
+                "repositoryTopics": {"nodes": [{"topic": {"name": "tool"}}]},
+                "primaryLanguage": {"name": "Rust"}
+              }
+            },
+            {
+              "cursor": "s2",
+              "node": {
+                "nameWithOwner": "octocat/repo-a",
+                "isArchived": false,
+                "isPrivate": false,
+                "isFork": false,
+                "visibility": "PUBLIC",
+                "description": "Starred view of an owned repo - metadata must stay owned",
+                "updatedAt": "2024-02-02T00:00:00Z",
+                "diskUsage": 1024,
+                "defaultBranchRef": {"name": "main"},
+                "repositoryTopics": {"nodes": []},
+                "primaryLanguage": {"name": "Kotlin"}
+              }
+            }
+          ]
+        },
+        "watchingRepositories": {
+          "watchingEdges": [
+            {
+              "cursor": "w1",
+              "node": {
+                "nameWithOwner": "watch/watch-1",
+                "isArchived": false,
+                "isPrivate": false,
+                "isFork": false,
+                "visibility": "PUBLIC",
+                "description": "Watched repo",
+                "updatedAt": "2024-03-03T12:00:00Z",
+                "diskUsage": 200,
+                "defaultBranchRef": {"name": "develop"},
+                "repositoryTopics": {"nodes": []},
+                "primaryLanguage": {"name": "Go"}
+              }
+            }
+          ]
+        },
+        "gistRepositories": {
+          "gistEdges": [
+            {
+              "cursor": "g1",
+              "node": {
+                "name": "gist-public-1",
+                "isPublic": true,
+                "description": "A public gist",
+                "updatedAt": "2024-04-04T04:04:04Z"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "user": {
+        "ownedRepositories": {
+          "ownedEdges": [
+            {
+              "cursor": "o3",
+              "node": {
+                "nameWithOwner": "octocat/repo-c",
+                "isArchived": false,
+                "isPrivate": false,
+                "isFork": false,
+                "visibility": "INTERNAL",
+                "description": "Second page owned repo",
+                "updatedAt": "2024-05-05T05:05:05Z",
+                "diskUsage": 4096,
+                "defaultBranchRef": {"name": "trunk"},
+                "repositoryTopics": {"nodes": [{"topic": {"name": "internal"}}]},
+                "primaryLanguage": {"name": "Python"}
+              }
+            }
+          ]
+        },
+        "starredRepositories": {
+          "starredEdges": [
+            {
+              "cursor": "s3",
+              "node": {
+                "nameWithOwner": "other/star-2",
+                "isArchived": false,
+                "isPrivate": false,
+                "isFork": false,
+                "visibility": "PUBLIC",
+                "description": "Second page starred",
+                "updatedAt": "2024-06-06T06:06:06Z",
+                "diskUsage": 10,
+                "defaultBranchRef": {"name": "main"},
+                "repositoryTopics": {"nodes": []},
+                "primaryLanguage": null
+              }
+            }
+          ]
+        },
+        "watchingRepositories": {
+          "watchingEdges": [
+            {
+              "cursor": "w2",
+              "node": {
+                "nameWithOwner": "watch/watch-2",
+                "isArchived": false,
+                "isPrivate": false,
+                "isFork": false,
+                "visibility": "PUBLIC",
+                "description": null,
+                "updatedAt": "2024-07-07T07:07:07Z",
+                "diskUsage": null,
+                "defaultBranchRef": null,
+                "repositoryTopics": {"nodes": []},
+                "primaryLanguage": null
+              }
+            }
+          ]
+        },
+        "gistRepositories": {
+          "gistEdges": [
+            {
+              "cursor": "g2",
+              "node": {
+                "name": "gist-private-2",
+                "isPublic": false,
+                "description": null,
+                "updatedAt": "2024-08-08T08:08:08Z"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "expected": {
+    "owned": ["octocat/repo-a", "octocat/repo-b", "octocat/repo-c"],
+    "starred": ["other/star-1", "octocat/repo-a", "other/star-2"],
+    "watching": ["watch/watch-1", "watch/watch-2"],
+    "gists": ["gist-public-1", "gist-private-2"],
+    "metadata": {
+      "octocat/repo-a": {"name": "octocat/repo-a", "is_archived": false, "is_private": false, "is_fork": false, "visibility": "PUBLIC", "description": "Primary repo A", "updated_at": "2024-01-15T10:00:00Z", "repo_type": "owned", "disk_usage_kb": 1024, "default_branch": "main", "topics": ["cli", "backup"], "language": "Kotlin"},
+      "octocat/repo-b": {"name": "octocat/repo-b", "is_archived": true, "is_private": true, "is_fork": false, "visibility": "PRIVATE", "description": null, "updated_at": "2023-09-01T08:30:00Z", "repo_type": "owned", "disk_usage_kb": null, "default_branch": null, "topics": [], "language": null},
+      "octocat/repo-c": {"name": "octocat/repo-c", "is_archived": false, "is_private": false, "is_fork": false, "visibility": "INTERNAL", "description": "Second page owned repo", "updated_at": "2024-05-05T05:05:05Z", "repo_type": "owned", "disk_usage_kb": 4096, "default_branch": "trunk", "topics": ["internal"], "language": "Python"},
+      "other/star-1": {"name": "other/star-1", "is_archived": false, "is_private": false, "is_fork": true, "visibility": "PUBLIC", "description": "A starred repo", "updated_at": "2024-02-02T00:00:00Z", "repo_type": "starred", "disk_usage_kb": 50, "default_branch": "master", "topics": ["tool"], "language": "Rust"},
+      "other/star-2": {"name": "other/star-2", "is_archived": false, "is_private": false, "is_fork": false, "visibility": "PUBLIC", "description": "Second page starred", "updated_at": "2024-06-06T06:06:06Z", "repo_type": "starred", "disk_usage_kb": 10, "default_branch": "main", "topics": [], "language": null},
+      "watch/watch-1": {"name": "watch/watch-1", "is_archived": false, "is_private": false, "is_fork": false, "visibility": "PUBLIC", "description": "Watched repo", "updated_at": "2024-03-03T12:00:00Z", "repo_type": "watching", "disk_usage_kb": 200, "default_branch": "develop", "topics": [], "language": "Go"},
+      "watch/watch-2": {"name": "watch/watch-2", "is_archived": false, "is_private": false, "is_fork": false, "visibility": "PUBLIC", "description": null, "updated_at": "2024-07-07T07:07:07Z", "repo_type": "watching", "disk_usage_kb": null, "default_branch": null, "topics": [], "language": null},
+      "gist-public-1": {"name": "gist-public-1", "is_archived": false, "is_private": false, "is_fork": false, "visibility": "PUBLIC", "description": "A public gist", "updated_at": "2024-04-04T04:04:04Z", "repo_type": "gist", "disk_usage_kb": null, "default_branch": null, "topics": [], "language": null},
+      "gist-private-2": {"name": "gist-private-2", "is_archived": false, "is_private": true, "is_fork": false, "visibility": "PRIVATE", "description": null, "updated_at": "2024-08-08T08:08:08Z", "repo_type": "gist", "disk_usage_kb": null, "default_branch": null, "topics": [], "language": null}
+    }
+  }
+}
