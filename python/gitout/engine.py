@@ -1,0 +1,237 @@
+"""Sync engine: task collection and parallel mirror/update execution.
+
+Port of the core of ``Engine.kt`` (the backup path): GitHub token resolution,
+sync-task collection, the ``DRY RUN`` plan line, and parallel execution with an
+``asyncio.Semaphore`` worker pool and per-repo retry.
+
+Deferred to later phases (present in Kotlin, not yet ported): repository state
+tracking / exclusions, failure tracking, circuit breaker + storage pre-flight,
+large-repo/shallow-clone heuristics, LFS, maintenance, health checks, cron,
+Telegram, and search indexing.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from gitout.config import Config
+from gitout.git_commands import build_git_command
+from gitout.github import UserRepositories
+from gitout.retry import RetryContext, RetryPolicy
+
+# (argv, cwd, timeout_seconds) -> (exit_code, combined_output)
+GitRunner = Callable[[list[str], Path, float], Awaitable[tuple[int, str]]]
+# (user, token) -> discovered repositories
+RepoLoader = Callable[[str, str], Awaitable[UserRepositories]]
+
+
+@dataclass(frozen=True)
+class SyncTask:
+    name: str
+    url: str
+    destination: Path
+    credentials_path: str | None = None
+    reasons: frozenset[str] | None = None
+    single_branch_only: bool = False
+    default_branch: str | None = None
+
+
+@dataclass(frozen=True)
+class SyncOutcome:
+    task: SyncTask
+    ok: bool
+    error: str | None = None
+
+
+def resolve_github_token(config_token: str | None, environ: Mapping[str, str]) -> str:
+    """Resolve a GitHub token: config (trimmed) > GITHUB_TOKEN_FILE > GITHUB_TOKEN."""
+    if config_token is not None and config_token.strip():
+        return config_token.strip()
+
+    token_file_path = environ.get("GITHUB_TOKEN_FILE")
+    if token_file_path:
+        token_file = Path(token_file_path)
+        if token_file.exists():
+            token = token_file.read_text().strip()
+            if token:
+                return token
+
+    token_env = environ.get("GITHUB_TOKEN")
+    if token_env and token_env.strip():
+        return token_env.strip()
+
+    raise ValueError(
+        "GitHub token not found. Provide it via: (1) config.toml [github] token, "
+        "(2) GITHUB_TOKEN_FILE, or (3) GITHUB_TOKEN."
+    )
+
+
+def collect_sync_tasks(
+    config: Config,
+    destination: Path,
+    user_repos: UserRepositories | None,
+    credentials_path: str | None = None,
+) -> list[SyncTask]:
+    """Build the ordered list of repositories to sync from config + discovered repos."""
+    tasks: list[SyncTask] = []
+
+    github = config.github
+    if github is not None and user_repos is not None:
+        github_destination = destination / "github"
+        reasons: dict[str, set[str]] = {}
+
+        for name in user_repos.owned:
+            reasons.setdefault(name, set()).add("owned")
+        for name in github.clone.repos:
+            reasons.setdefault(name, set()).add("explicit")
+        if github.clone.starred:
+            for name in user_repos.starred:
+                reasons.setdefault(name, set()).add("starred")
+        if github.clone.watched:
+            for name in user_repos.watching:
+                reasons.setdefault(name, set()).add("watching")
+
+        for ignore in github.clone.ignore:
+            reasons.pop(ignore, None)
+
+        clone_destination = github_destination / "clone"
+        for name_and_owner, why in reasons.items():
+            metadata = user_repos.metadata.get(name_and_owner)
+            tasks.append(
+                SyncTask(
+                    name=name_and_owner,
+                    url=f"https://github.com/{name_and_owner}.git",
+                    destination=clone_destination / name_and_owner,
+                    credentials_path=credentials_path,
+                    reasons=frozenset(why),
+                    single_branch_only=github.clone.single_branch_only,
+                    default_branch=metadata.default_branch if metadata else None,
+                )
+            )
+
+        if github.clone.gists:
+            gists_destination = github_destination / "gists"
+            for gist in user_repos.gists:
+                tasks.append(
+                    SyncTask(
+                        name=f"gist:{gist}",
+                        url=f"https://gist.github.com/{gist}.git",
+                        destination=gists_destination / gist,
+                        credentials_path=credentials_path,
+                    )
+                )
+
+    git_destination = destination / "git"
+    for name, url in config.git.repos.items():
+        tasks.append(SyncTask(name=name, url=url, destination=git_destination / name))
+
+    return tasks
+
+
+def _build_argv(task: SyncTask, config: Config, *, force_http1: bool = False) -> list[str]:
+    repo_exists = task.destination.exists()
+    is_clone = not repo_exists
+    return build_git_command(
+        repo_exists=repo_exists,
+        url=task.url if is_clone else None,
+        repo_name=task.destination.name if is_clone else None,
+        verify_certificates=config.ssl.verify_certificates,
+        http_version=config.http.version,
+        post_buffer_size=config.http.post_buffer_size,
+        low_speed_limit=config.http.low_speed_limit,
+        low_speed_time=config.http.low_speed_time,
+        credentials_path=task.credentials_path,
+        force_http1=force_http1,
+        single_branch_only=task.single_branch_only,
+        default_branch=task.default_branch,
+    )
+
+
+def dry_run_line(task: SyncTask, config: Config) -> str:
+    """Render the ``DRY RUN <directory> <git argv>`` line (matches Engine.kt)."""
+    repo_exists = task.destination.exists()
+    directory = task.destination if repo_exists else task.destination.parent
+    argv = _build_argv(task, config)
+    return f"DRY RUN {directory} {' '.join(argv)}"
+
+
+async def default_git_runner(argv: list[str], cwd: Path, timeout_seconds: float) -> tuple[int, str]:
+    """Run git via a subprocess, capturing combined output, honouring a timeout."""
+    process = await asyncio.create_subprocess_exec(
+        *argv,
+        cwd=str(cwd),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    try:
+        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=timeout_seconds)
+    except TimeoutError:
+        process.kill()
+        await process.wait()
+        raise RuntimeError(f"git operation timed out after {timeout_seconds}s") from None
+    return process.returncode or 0, stdout.decode(errors="replace")
+
+
+@dataclass
+class Engine:
+    config: Config
+    destination: Path
+    repo_loader: RepoLoader | None = None
+    git_runner: GitRunner = default_git_runner
+    environ: Mapping[str, str] = field(default_factory=dict)
+    workers: int | None = None
+    timeout_seconds: float = 600.0
+    credentials_path: str | None = None
+
+    async def _discover(self) -> UserRepositories | None:
+        github = self.config.github
+        if github is None:
+            return None
+        if self.repo_loader is None:
+            raise RuntimeError("repo_loader is required when [github] is configured")
+        token = resolve_github_token(github.token, self.environ)
+        return await self.repo_loader(github.user, token)
+
+    async def perform_sync(self, dry_run: bool = False) -> list[SyncOutcome]:
+        user_repos = await self._discover()
+        tasks = collect_sync_tasks(
+            self.config, self.destination, user_repos, self.credentials_path
+        )
+
+        if dry_run:
+            for task in tasks:
+                print(dry_run_line(task, self.config))
+            return [SyncOutcome(task=t, ok=True) for t in tasks]
+
+        worker_count = self.workers or self.config.parallelism.workers
+        semaphore = asyncio.Semaphore(worker_count)
+
+        async def run(task: SyncTask) -> SyncOutcome:
+            async with semaphore:
+                return await self._sync_one(task)
+
+        return list(await asyncio.gather(*(run(t) for t in tasks)))
+
+    async def _sync_one(self, task: SyncTask) -> SyncOutcome:
+        is_clone = not task.destination.exists()
+        cwd = task.destination.parent if is_clone else task.destination
+        if is_clone:
+            cwd.mkdir(parents=True, exist_ok=True)
+
+        retry_policy = RetryPolicy()
+
+        async def operation(context: RetryContext) -> str:
+            argv = _build_argv(task, self.config, force_http1=context.should_use_http1_fallback)
+            code, output = await self.git_runner(argv, cwd, self.timeout_seconds)
+            if code != 0:
+                raise RuntimeError(output or f"git exited with code {code}")
+            return output
+
+        try:
+            await retry_policy.execute(operation, operation_description=task.url)
+            return SyncOutcome(task=task, ok=True)
+        except Exception as exc:  # noqa: BLE001 - surfaced as an outcome, not raised
+            return SyncOutcome(task=task, ok=False, error=str(exc))
