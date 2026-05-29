@@ -22,7 +22,7 @@ from urllib.parse import quote
 
 from gitout.circuit_breaker import StorageCircuitBreaker
 from gitout.config import Config
-from gitout.errors import classify, display_name
+from gitout.errors import ErrorCategory, classify, display_name
 from gitout.failure_tracker import FailureTracker
 from gitout.git_commands import build_git_command
 from gitout.git_exec import resolve_git_executable
@@ -72,6 +72,8 @@ class SyncOutcome:
     ok: bool
     error: str | None = None
     skipped: bool = False
+    category: ErrorCategory | None = None
+    attempts: int = 1
 
 
 def resolve_github_token(config_token: str | None, environ: Mapping[str, str]) -> str:
@@ -446,8 +448,10 @@ class Engine:
                             name=outcome.task.name,
                             url=outcome.task.url,
                             error_message=outcome.error or "",
-                            category=display_name(classify(outcome.error or "")),
-                            retry_attempts=1,
+                            category=display_name(outcome.category)
+                            if outcome.category is not None
+                            else display_name(classify(outcome.error or "")),
+                            retry_attempts=outcome.attempts,
                         )
                         for outcome in results
                         if not outcome.ok and not outcome.skipped
@@ -540,14 +544,16 @@ class Engine:
                 tracker.record_failure(task.name, cause_message, category)
             if breaker is not None:
                 breaker.record_failure(category)
-            return SyncOutcome(task=task, ok=False, error=str(exc))
+            return SyncOutcome(
+                task=task, ok=False, error=str(exc), category=category, attempts=exc.attempt_count
+            )
         except Exception as exc:  # noqa: BLE001 - surfaced as an outcome, not raised
             category = classify(str(exc))
             if tracker is not None:
                 tracker.record_failure(task.name, str(exc), category)
             if breaker is not None:
                 breaker.record_failure(category)
-            return SyncOutcome(task=task, ok=False, error=str(exc))
+            return SyncOutcome(task=task, ok=False, error=str(exc), category=category, attempts=1)
 
         # Success: reset trackers, then run post-sync maintenance and LFS fetch.
         # Both calls ultimately invoke blocking subprocess.run(); offload them to a
