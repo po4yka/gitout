@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import os
 import tempfile
 import time
@@ -34,6 +35,8 @@ from gitout.retry import RetryContext, RetryPolicy, SyncFailureException
 from gitout.search.index_service import SearchIndexService
 from gitout.state_tracker import ExcludedRepo, RepositoryStateTracker
 from gitout.telegram import FailedRepoSummary, TelegramNotificationService
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "Engine",
@@ -374,6 +377,7 @@ class Engine:
             self.destination, hc.preflight_timeout_seconds * 1000
         )
         if message is not None:
+            logger.error("Storage pre-flight check failed: %s", message)
             raise RuntimeError(f"Storage pre-flight check failed: {message}")
 
     @contextlib.asynccontextmanager
@@ -414,6 +418,7 @@ class Engine:
         semaphore = asyncio.Semaphore(worker_count)
         large_repo_semaphore = asyncio.Semaphore(self.config.large_repos.max_parallel)
 
+        logger.info("Starting sync of %d repositories with %d workers", len(tasks), worker_count)
         if self.telegram is not None:
             self.telegram.notify_sync_start(len(tasks), worker_count)
         start_time = time.monotonic()
@@ -421,6 +426,7 @@ class Engine:
         async def run(task: SyncTask) -> SyncOutcome:
             # Checked before acquiring a permit so queued tasks skip once tripped.
             if breaker is not None and breaker.is_open():
+                logger.warning("Skipping %s: storage circuit breaker is open", task.name)
                 return SyncOutcome(
                     task=task, ok=False, skipped=True, error="storage circuit breaker open"
                 )
@@ -432,6 +438,8 @@ class Engine:
                 )
 
         results = list(await asyncio.gather(*(run(t) for t in tasks)))
+        successful = sum(1 for r in results if r.ok)
+        logger.info("Sync complete: %d/%d repositories succeeded", successful, len(results))
         self._report_to_telegram(results, start_time)
         return results
 
@@ -474,15 +482,19 @@ class Engine:
         if tracker is not None:
             tracker.save_state()
         if maint is not None and maint.register_sync_and_check_repack():
+            logger.info("Running full repack of %s", self.destination)
             await asyncio.to_thread(maint.run_full_repack, self.destination)
         if (
             self.search_index_service is not None
             and self.config.search.auto_index
             and user_repos is not None
         ):
+            repo_count = len(user_repos.metadata)
+            logger.info("Starting search auto-indexing for %d repositories", repo_count)
             await self.search_index_service.index_repositories(
                 user_repos.metadata, self.destination / "github" / "clone"
             )
+            logger.info("Search auto-indexing complete")
 
     async def perform_sync(self, dry_run: bool = False) -> list[SyncOutcome]:
         if self.config.version != 0:
@@ -532,6 +544,7 @@ class Engine:
         cwd = task.destination.parent if is_clone else task.destination
         if is_clone:
             cwd.mkdir(parents=True, exist_ok=True)
+        logger.debug("Syncing %s (%s)", task.name, "clone" if is_clone else "update")
 
         # Clone strategy from failure history + repo size (shallow for very-large repos
         # with repeated failures, HTTP/1.1 if HTTP2 errors were seen, longer timeout for
@@ -579,6 +592,13 @@ class Engine:
         except SyncFailureException as exc:
             category = exc.error_categories[-1] if exc.error_categories else classify(str(exc))
             cause_message = str(exc.__cause__) if exc.__cause__ else str(exc)
+            logger.warning(
+                "Failed to sync %s after %d attempt(s) [%s]: %s",
+                task.name,
+                exc.attempt_count,
+                display_name(category),
+                cause_message,
+            )
             if tracker is not None:
                 tracker.record_failure(task.name, cause_message, category)
             if breaker is not None:
@@ -588,6 +608,9 @@ class Engine:
             )
         except Exception as exc:  # noqa: BLE001 - surfaced as an outcome, not raised
             category = classify(str(exc))
+            logger.warning(
+                "Failed to sync %s [%s]: %s", task.name, display_name(category), exc
+            )
             if tracker is not None:
                 tracker.record_failure(task.name, str(exc), category)
             if breaker is not None:
@@ -597,6 +620,7 @@ class Engine:
         # Success: reset trackers, then run post-sync maintenance and LFS fetch.
         # Both calls ultimately invoke blocking subprocess.run(); offload them to a
         # thread pool so the event loop stays free for the other gather workers.
+        logger.debug("Synced %s successfully", task.name)
         if tracker is not None:
             tracker.record_success(task.name)
         if breaker is not None:

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
 from gitout import cli
+from gitout.cli import _configure_logging
 from gitout.github import RepositoryMetadata, UserRepositories
 
 runner = CliRunner()
@@ -85,3 +87,26 @@ def test_index_without_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     result = runner.invoke(cli.app, ["index", str(config), str(tmp_path)])
     assert result.exit_code == 0
     assert "No repository state found" in result.output
+
+
+def test_configure_logging_levels() -> None:
+    """_configure_logging sets the expected root logger level for each mode."""
+    root = logging.getLogger()
+    original_level = root.level
+    original_handlers = root.handlers[:]
+    try:
+        _configure_logging(verbose=0, quiet=True)
+        assert root.level == logging.WARNING
+
+        _configure_logging(verbose=0, quiet=False)
+        assert root.level == logging.INFO
+
+        _configure_logging(verbose=1, quiet=False)
+        assert root.level == logging.DEBUG
+
+        # quiet wins over verbose
+        _configure_logging(verbose=1, quiet=True)
+        assert root.level == logging.WARNING
+    finally:
+        root.level = original_level
+        root.handlers = original_handlers

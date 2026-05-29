@@ -12,7 +12,9 @@ subcommand here — Typer/Click cannot mix positional root args with subcommands
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -36,6 +38,25 @@ app = typer.Typer(
     add_completion=False,
     help="Back up Git repositories from GitHub or any git host.",
 )
+
+
+def _configure_logging(verbose: int, quiet: bool) -> None:
+    """Configure the root logger for the application.
+
+    Level mapping: quiet -> WARNING; default -> INFO; verbose>=1 -> DEBUG.
+    quiet wins over verbose when both are set.
+    """
+    if quiet:
+        level = logging.WARNING
+    elif verbose >= 1:
+        level = logging.DEBUG
+    else:
+        level = logging.INFO
+    logging.basicConfig(
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        stream=sys.stderr,
+    )
+    logging.getLogger().setLevel(level)
 
 
 def _version_callback(value: bool) -> None:
@@ -75,8 +96,13 @@ def sync(
     cron: str | None = typer.Option(
         None, "--cron", envvar="GITOUT_CRON", help="Run forever, syncing on this cron schedule"
     ),
+    verbose: int = typer.Option(
+        0, "--verbose", "-v", count=True, help="Increase log verbosity (-v for debug)"
+    ),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Only log warnings and errors"),
 ) -> None:
     """Back up repositories described by the config into the destination."""
+    _configure_logging(verbose, quiet)
     cfg = config_module.parse(config.read_text())
     errors = config_module.validate(cfg)
     if errors:
