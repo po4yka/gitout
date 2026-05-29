@@ -35,6 +35,7 @@ from gitout.maintenance import RepositoryMaintenance
 from gitout.retry import RetryContext, RetryPolicy, SyncFailureException
 from gitout.search.index_service import SearchIndexService
 from gitout.state_tracker import ExcludedRepo, RepositoryStateTracker
+from gitout.telegram import TelegramNotificationService
 
 __all__ = [
     "Engine",
@@ -289,6 +290,7 @@ class Engine:
     # Lifecycle collaborators (built by the CLI when configured).
     search_index_service: SearchIndexService | None = None
     health_check: HealthCheck | None = None
+    telegram: TelegramNotificationService | None = None
     _token: str | None = field(default=None, init=False, repr=False)
 
     def _apply_state_tracking(self, user_repos: UserRepositories) -> set[str]:
@@ -416,6 +418,10 @@ class Engine:
             # Additional limit on concurrent large-repo clones.
             large_repo_semaphore = asyncio.Semaphore(self.config.large_repos.max_parallel)
 
+            if self.telegram is not None:
+                self.telegram.notify_sync_start(len(tasks), worker_count)
+            start_time = time.monotonic()
+
             async def run(task: SyncTask) -> SyncOutcome:
                 # Checked before acquiring a permit so queued tasks skip once tripped.
                 if breaker is not None and breaker.is_open():
@@ -430,6 +436,12 @@ class Engine:
                     )
 
             results = list(await asyncio.gather(*(run(t) for t in tasks)))
+
+            if self.telegram is not None:
+                successful = sum(1 for outcome in results if outcome.ok)
+                self.telegram.notify_sync_completion(
+                    successful, len(results) - successful, int(time.monotonic() - start_time)
+                )
 
             if tracker is not None:
                 tracker.save_state()

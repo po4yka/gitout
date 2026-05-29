@@ -49,11 +49,14 @@ python -m gitout config.toml /backup/dest --dry-run
   (change detection + exclusions), post-sync maintenance (gc/repack/commit-graph + full
   repack cadence), Git LFS fetch, and the storage pre-flight check, all wired into the
   engine's parallel sync.
-- **Phase 3 (in progress):** semantic search (README extraction + Gemini embeddings +
-  Qdrant index + indexing/search orchestration), the `search`/`index` CLI subcommands,
-  and state-tracker exclusion wiring (deleted repos are skipped, re-included if they
-  reappear). Remaining: Telegram bot, Healthchecks.io ping, cron scheduling, and
-  large-repo/shallow-clone heuristics in the live sync path.
+- **Phase 3 (done):** semantic search (README extraction + Gemini embeddings + Qdrant
+  index + indexing/search orchestration) with `search`/`index` CLI subcommands;
+  state-tracker exclusion wiring; large-repo/shallow-clone heuristics + per-repo clone
+  strategy in the live sync; lifecycle wiring (Healthchecks.io start/complete,
+  auto-indexing after sync); dependency-free cron scheduling (`--cron`); and Telegram
+  notifications (start/progress/completion via the Bot API, token resolution, whitelist
+  auth). The interactive Telegram command bot (long-polling `/status`, `/find`, …) is
+  intentionally not ported.
 
 ## CLI
 

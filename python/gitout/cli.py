@@ -30,6 +30,7 @@ from gitout.search.index_service import SearchIndexService
 from gitout.search.qdrant import QdrantClient
 from gitout.search.readme_extractor import ReadmeExtractor
 from gitout.state_tracker import RepositoryStateTracker
+from gitout.telegram import TelegramNotificationService
 
 app = typer.Typer(
     add_completion=False,
@@ -88,6 +89,12 @@ def sync(
 
     health_check = HealthCheckService(hc_host).new_check(hc_id) if hc_id else None
 
+    telegram = (
+        TelegramNotificationService(cfg.telegram, environ=os.environ)
+        if cfg.telegram is not None and not dry_run
+        else None
+    )
+
     engine = Engine(
         config=cfg,
         destination=destination,
@@ -97,6 +104,7 @@ def sync(
         timeout_seconds=timeout,
         search_index_service=search_service,
         health_check=health_check,
+        telegram=telegram,
     )
 
     if cron:

@@ -19,6 +19,7 @@ from gitout.config import (
     GitHubClone,
     GitHubConfig,
     LargeRepoConfig,
+    Telegram,
 )
 from gitout.engine import (
     Engine,
@@ -32,6 +33,7 @@ from gitout.errors import ErrorCategory
 from gitout.failure_tracker import FailureTracker
 from gitout.github import RepositoryMetadata, UserRepositories
 from gitout.retry import RetryPolicy
+from gitout.telegram import TelegramNotificationService
 
 
 class FakeRunner:
@@ -481,3 +483,19 @@ async def test_large_repo_uses_shallow_and_http1_from_failure_history(tmp_path: 
     assert "--depth=1" in argv  # shallow clone
     assert "http.version=HTTP/1.1" in argv  # forced HTTP/1.1
     assert "--progress" in argv  # large repos show progress
+
+
+async def test_telegram_start_and_completion_notifications(tmp_path: Path) -> None:
+    sent: list[str] = []
+    telegram = TelegramNotificationService(
+        Telegram(chat_id="1", token="t", enabled=True), environ={}, sender=sent.append
+    )
+    engine = Engine(
+        config=_git_only(tmp_path),
+        destination=tmp_path,
+        git_runner=FakeRunner(),
+        telegram=telegram,
+    )
+    await engine.perform_sync(dry_run=False)
+    assert any("Sync Started" in m for m in sent)
+    assert any("Sync Completed" in m for m in sent)
