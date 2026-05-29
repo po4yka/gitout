@@ -1,0 +1,182 @@
+{
+  "_source": "Captured from Config.kt (defaults + @SerialName keys) and ConfigTest.kt. Each case parses `toml_lines` joined by newline; the result, normalized to a TOML/SerialName-keyed dict, must equal `expected`. Parsing is lenient: unknown keys are ignored (like ktoml ignoreUnknownNames).",
+  "cases": [
+    {
+      "name": "empty",
+      "note": "version only -> all defaults",
+      "toml_lines": ["version = 0"],
+      "expected": {
+        "version": 0,
+        "github": null,
+        "git": {"repos": {}},
+        "ssl": {"cert_file": null, "verify_certificates": true},
+        "http": {"version": "HTTP/1.1", "post_buffer_size": 524288000, "adaptive_fallback": true, "low_speed_limit": 1000, "low_speed_time": 60},
+        "parallelism": {"workers": 4, "progress_interval_ms": 1000, "repository_timeout_seconds": null, "priorities": []},
+        "metrics": {"enabled": true, "format": "console", "export_path": null},
+        "telegram": null,
+        "large_repos": {"size_threshold_kb": 500000, "timeout_multiplier": 3.0, "max_parallel": 2, "shallow_clone_threshold_kb": 2000000, "shallow_clone_after_failures": 3, "progress_reporting": true},
+        "failure_tracking": {"enabled": true, "state_file": ".gitout-failures.json", "max_consecutive_failures": 5, "failure_cooldown_hours": 24, "auto_skip_failing": false},
+        "health_check": {"preflight_enabled": true, "preflight_timeout_seconds": 5, "circuit_breaker_enabled": true, "circuit_breaker_threshold": 10},
+        "maintenance": {"enabled": false, "strategy": "gc-auto", "full_repack_interval": "never", "repack_window": 50, "repack_depth": 50, "write_commit_graph": true},
+        "lfs": {"fetch_lfs": false},
+        "exit_on_failure": true,
+        "search": {"enabled": false, "qdrant_url": "http://localhost:6333", "collection_name": "repositories", "top_k": 10, "auto_index": true}
+      }
+    },
+    {
+      "name": "full_github_and_git",
+      "note": "ConfigTest.full: github user/token, clone overrides, git.repos map",
+      "toml_lines": [
+        "version = 0",
+        "",
+        "[github]",
+        "user = \"user\"",
+        "token = \"token_value\"",
+        "",
+        "[github.archive]",
+        "owned = false",
+        "",
+        "[github.clone]",
+        "starred = true",
+        "watched = true",
+        "gists = false",
+        "repos = [",
+        "  \"example/two\",",
+        "]",
+        "ignore = [",
+        "  \"hey/there\",",
+        "]",
+        "",
+        "[git.repos]",
+        "example = \"https://example.com/example.git\""
+      ],
+      "expected": {
+        "version": 0,
+        "github": {"user": "user", "token": "token_value", "archive": {"owned": false}, "clone": {"starred": true, "watched": true, "gists": false, "repos": ["example/two"], "ignore": ["hey/there"], "single_branch_only": false}},
+        "git": {"repos": {"example": "https://example.com/example.git"}},
+        "ssl": {"cert_file": null, "verify_certificates": true},
+        "http": {"version": "HTTP/1.1", "post_buffer_size": 524288000, "adaptive_fallback": true, "low_speed_limit": 1000, "low_speed_time": 60},
+        "parallelism": {"workers": 4, "progress_interval_ms": 1000, "repository_timeout_seconds": null, "priorities": []},
+        "metrics": {"enabled": true, "format": "console", "export_path": null},
+        "telegram": null,
+        "large_repos": {"size_threshold_kb": 500000, "timeout_multiplier": 3.0, "max_parallel": 2, "shallow_clone_threshold_kb": 2000000, "shallow_clone_after_failures": 3, "progress_reporting": true},
+        "failure_tracking": {"enabled": true, "state_file": ".gitout-failures.json", "max_consecutive_failures": 5, "failure_cooldown_hours": 24, "auto_skip_failing": false},
+        "health_check": {"preflight_enabled": true, "preflight_timeout_seconds": 5, "circuit_breaker_enabled": true, "circuit_breaker_threshold": 10},
+        "maintenance": {"enabled": false, "strategy": "gc-auto", "full_repack_interval": "never", "repack_window": 50, "repack_depth": 50, "write_commit_graph": true},
+        "lfs": {"fetch_lfs": false},
+        "exit_on_failure": true,
+        "search": {"enabled": false, "qdrant_url": "http://localhost:6333", "collection_name": "repositories", "top_k": 10, "auto_index": true}
+      }
+    },
+    {
+      "name": "github_with_token_default_clone",
+      "note": "ConfigTest.githubWithToken: clone defaults (gists=true) when [github.clone] omitted",
+      "toml_lines": ["version = 0", "", "[github]", "user = \"example\"", "token = \"ghp_test123\""],
+      "expected": {
+        "version": 0,
+        "github": {"user": "example", "token": "ghp_test123", "archive": {"owned": false}, "clone": {"starred": false, "watched": false, "gists": true, "repos": [], "ignore": [], "single_branch_only": false}},
+        "git": {"repos": {}},
+        "ssl": {"cert_file": null, "verify_certificates": true},
+        "http": {"version": "HTTP/1.1", "post_buffer_size": 524288000, "adaptive_fallback": true, "low_speed_limit": 1000, "low_speed_time": 60},
+        "parallelism": {"workers": 4, "progress_interval_ms": 1000, "repository_timeout_seconds": null, "priorities": []},
+        "metrics": {"enabled": true, "format": "console", "export_path": null},
+        "telegram": null,
+        "large_repos": {"size_threshold_kb": 500000, "timeout_multiplier": 3.0, "max_parallel": 2, "shallow_clone_threshold_kb": 2000000, "shallow_clone_after_failures": 3, "progress_reporting": true},
+        "failure_tracking": {"enabled": true, "state_file": ".gitout-failures.json", "max_consecutive_failures": 5, "failure_cooldown_hours": 24, "auto_skip_failing": false},
+        "health_check": {"preflight_enabled": true, "preflight_timeout_seconds": 5, "circuit_breaker_enabled": true, "circuit_breaker_threshold": 10},
+        "maintenance": {"enabled": false, "strategy": "gc-auto", "full_repack_interval": "never", "repack_window": 50, "repack_depth": 50, "write_commit_graph": true},
+        "lfs": {"fetch_lfs": false},
+        "exit_on_failure": true,
+        "search": {"enabled": false, "qdrant_url": "http://localhost:6333", "collection_name": "repositories", "top_k": 10, "auto_index": true}
+      }
+    },
+    {
+      "name": "unknown_clone_option_ignored",
+      "note": "ConfigTest.unknownGithubCloneOptionIgnored: 'owned=true' under [github.clone] is unknown and dropped",
+      "toml_lines": ["version = 0", "", "[github]", "user = \"example\"", "", "[github.clone]", "starred = true", "owned = true"],
+      "expected": {
+        "version": 0,
+        "github": {"user": "example", "token": null, "archive": {"owned": false}, "clone": {"starred": true, "watched": false, "gists": true, "repos": [], "ignore": [], "single_branch_only": false}},
+        "git": {"repos": {}},
+        "ssl": {"cert_file": null, "verify_certificates": true},
+        "http": {"version": "HTTP/1.1", "post_buffer_size": 524288000, "adaptive_fallback": true, "low_speed_limit": 1000, "low_speed_time": 60},
+        "parallelism": {"workers": 4, "progress_interval_ms": 1000, "repository_timeout_seconds": null, "priorities": []},
+        "metrics": {"enabled": true, "format": "console", "export_path": null},
+        "telegram": null,
+        "large_repos": {"size_threshold_kb": 500000, "timeout_multiplier": 3.0, "max_parallel": 2, "shallow_clone_threshold_kb": 2000000, "shallow_clone_after_failures": 3, "progress_reporting": true},
+        "failure_tracking": {"enabled": true, "state_file": ".gitout-failures.json", "max_consecutive_failures": 5, "failure_cooldown_hours": 24, "auto_skip_failing": false},
+        "health_check": {"preflight_enabled": true, "preflight_timeout_seconds": 5, "circuit_breaker_enabled": true, "circuit_breaker_threshold": 10},
+        "maintenance": {"enabled": false, "strategy": "gc-auto", "full_repack_interval": "never", "repack_window": 50, "repack_depth": 50, "write_commit_graph": true},
+        "lfs": {"fetch_lfs": false},
+        "exit_on_failure": true,
+        "search": {"enabled": false, "qdrant_url": "http://localhost:6333", "collection_name": "repositories", "top_k": 10, "auto_index": true}
+      }
+    },
+    {
+      "name": "ssl_cert_file",
+      "note": "ConfigTest.sslWithCertFile",
+      "toml_lines": ["version = 0", "", "[ssl]", "cert_file = \"/etc/ssl/certs/ca-certificates.crt\"", "verify_certificates = true"],
+      "expected": {
+        "version": 0,
+        "github": null,
+        "git": {"repos": {}},
+        "ssl": {"cert_file": "/etc/ssl/certs/ca-certificates.crt", "verify_certificates": true},
+        "http": {"version": "HTTP/1.1", "post_buffer_size": 524288000, "adaptive_fallback": true, "low_speed_limit": 1000, "low_speed_time": 60},
+        "parallelism": {"workers": 4, "progress_interval_ms": 1000, "repository_timeout_seconds": null, "priorities": []},
+        "metrics": {"enabled": true, "format": "console", "export_path": null},
+        "telegram": null,
+        "large_repos": {"size_threshold_kb": 500000, "timeout_multiplier": 3.0, "max_parallel": 2, "shallow_clone_threshold_kb": 2000000, "shallow_clone_after_failures": 3, "progress_reporting": true},
+        "failure_tracking": {"enabled": true, "state_file": ".gitout-failures.json", "max_consecutive_failures": 5, "failure_cooldown_hours": 24, "auto_skip_failing": false},
+        "health_check": {"preflight_enabled": true, "preflight_timeout_seconds": 5, "circuit_breaker_enabled": true, "circuit_breaker_threshold": 10},
+        "maintenance": {"enabled": false, "strategy": "gc-auto", "full_repack_interval": "never", "repack_window": 50, "repack_depth": 50, "write_commit_graph": true},
+        "lfs": {"fetch_lfs": false},
+        "exit_on_failure": true,
+        "search": {"enabled": false, "qdrant_url": "http://localhost:6333", "collection_name": "repositories", "top_k": 10, "auto_index": true}
+      }
+    },
+    {
+      "name": "search_all_fields",
+      "note": "ConfigTest.searchBlockParsesAllFields",
+      "toml_lines": ["version = 1", "", "[search]", "enabled = true", "qdrant_url = \"http://qdrant:6333\"", "collection_name = \"my_repos\"", "top_k = 5", "auto_index = false"],
+      "expected": {
+        "version": 1,
+        "github": null,
+        "git": {"repos": {}},
+        "ssl": {"cert_file": null, "verify_certificates": true},
+        "http": {"version": "HTTP/1.1", "post_buffer_size": 524288000, "adaptive_fallback": true, "low_speed_limit": 1000, "low_speed_time": 60},
+        "parallelism": {"workers": 4, "progress_interval_ms": 1000, "repository_timeout_seconds": null, "priorities": []},
+        "metrics": {"enabled": true, "format": "console", "export_path": null},
+        "telegram": null,
+        "large_repos": {"size_threshold_kb": 500000, "timeout_multiplier": 3.0, "max_parallel": 2, "shallow_clone_threshold_kb": 2000000, "shallow_clone_after_failures": 3, "progress_reporting": true},
+        "failure_tracking": {"enabled": true, "state_file": ".gitout-failures.json", "max_consecutive_failures": 5, "failure_cooldown_hours": 24, "auto_skip_failing": false},
+        "health_check": {"preflight_enabled": true, "preflight_timeout_seconds": 5, "circuit_breaker_enabled": true, "circuit_breaker_threshold": 10},
+        "maintenance": {"enabled": false, "strategy": "gc-auto", "full_repack_interval": "never", "repack_window": 50, "repack_depth": 50, "write_commit_graph": true},
+        "lfs": {"fetch_lfs": false},
+        "exit_on_failure": true,
+        "search": {"enabled": true, "qdrant_url": "http://qdrant:6333", "collection_name": "my_repos", "top_k": 5, "auto_index": false}
+      }
+    },
+    {
+      "name": "health_check_override",
+      "note": "ConfigTest.healthCheckBlockOverridesAllFields",
+      "toml_lines": ["version = 0", "", "[health_check]", "preflight_enabled = false", "preflight_timeout_seconds = 30", "circuit_breaker_enabled = false", "circuit_breaker_threshold = 25"],
+      "expected": {
+        "version": 0,
+        "github": null,
+        "git": {"repos": {}},
+        "ssl": {"cert_file": null, "verify_certificates": true},
+        "http": {"version": "HTTP/1.1", "post_buffer_size": 524288000, "adaptive_fallback": true, "low_speed_limit": 1000, "low_speed_time": 60},
+        "parallelism": {"workers": 4, "progress_interval_ms": 1000, "repository_timeout_seconds": null, "priorities": []},
+        "metrics": {"enabled": true, "format": "console", "export_path": null},
+        "telegram": null,
+        "large_repos": {"size_threshold_kb": 500000, "timeout_multiplier": 3.0, "max_parallel": 2, "shallow_clone_threshold_kb": 2000000, "shallow_clone_after_failures": 3, "progress_reporting": true},
+        "failure_tracking": {"enabled": true, "state_file": ".gitout-failures.json", "max_consecutive_failures": 5, "failure_cooldown_hours": 24, "auto_skip_failing": false},
+        "health_check": {"preflight_enabled": false, "preflight_timeout_seconds": 30, "circuit_breaker_enabled": false, "circuit_breaker_threshold": 25},
+        "maintenance": {"enabled": false, "strategy": "gc-auto", "full_repack_interval": "never", "repack_window": 50, "repack_depth": 50, "write_commit_graph": true},
+        "lfs": {"fetch_lfs": false},
+        "exit_on_failure": true,
+        "search": {"enabled": false, "qdrant_url": "http://localhost:6333", "collection_name": "repositories", "top_k": 10, "auto_index": true}
+      }
+    }
+  ]
+}
