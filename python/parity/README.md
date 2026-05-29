@@ -16,4 +16,4 @@ python parity/parity_check.py path/to/config.toml /tmp/backup-dest
 
 ## Status
 
-Phase 0 scaffold. The Python CLI (`gitout.cli`) and the `--dry-run` plan format land in Phase 1; until then `parity_check.py` reports which side is missing rather than diffing. The git-argv contract is already pinned offline by `tests/test_git_commands.py`, so this harness is a second, end-to-end line of defense rather than the only one.
+The Python `--dry-run` side is live (Phase 1). To diff end-to-end, build the Kotlin reference with `./gradlew installDist`; without it, `parity_check.py` reports the Kotlin side as missing rather than diffing. The git-argv contract is also pinned offline by `tests/test_git_commands.py`, so this harness is a second, end-to-end line of defense.

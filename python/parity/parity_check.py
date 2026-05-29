@@ -18,6 +18,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+PACKAGE_ROOT = Path(__file__).resolve().parents[1]  # the python/ dir holding the gitout package
 # ../build/install/gitout/bin/gitout (produced by `./gradlew installDist`)
 KOTLIN_BIN = Path(__file__).resolve().parents[2] / "build" / "install" / "gitout" / "bin" / "gitout"
 
@@ -35,12 +36,16 @@ def kotlin_dry_run(config: str, dest: str) -> str | None:
 
 
 def python_dry_run(config: str, dest: str) -> str | None:
-    try:
-        import gitout.cli  # noqa: F401
-    except ImportError:
+    if not (PACKAGE_ROOT / "gitout" / "cli.py").exists():
         return None
-    _, out = _run([sys.executable, "-m", "gitout", "--dry-run", config, dest])
-    return out
+    proc = subprocess.run(  # noqa: S603
+        [sys.executable, "-m", "gitout", "--dry-run", config, dest],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=str(PACKAGE_ROOT),
+    )
+    return proc.stdout + proc.stderr
 
 
 def main() -> int:

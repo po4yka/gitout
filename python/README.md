@@ -22,31 +22,28 @@ python/
 
 This project is built test-first. The `tests/` suite encodes the behavior of the
 existing Kotlin tool as **characterization fixtures** — the executable spec the port
-must satisfy. During Phase 0 the `gitout/` modules are stubs that raise
-`NotImplementedError`, so the suite is **red**; each test module carries an `xfail`
-marker so CI stays green until the corresponding subsystem is implemented in Phase 1.
-
-To watch the spec fail for the right reason (before implementing):
+must satisfy. New subsystems are spec'd as failing tests first (during Phase 0 the
+`gitout/` modules were stubs raising `NotImplementedError`, with `xfail` markers
+keeping CI green), then implemented until the tests go green.
 
 ```bash
 cd python
-python -m pytest --runxfail -q        # shows the real NotImplementedError failures
-```
-
-Normal run (xfail-aware, CI mode):
-
-```bash
-cd python
-python -m pytest -q
+python -m pytest -q          # full suite (currently all green)
 ruff check .
 mypy gitout
 ```
 
-As each subsystem is implemented, remove its module's `pytestmark = pytest.mark.xfail(...)`
-line and the tests must go green.
+Run the tool (dry-run prints the planned git commands without touching the network):
+
+```bash
+python -m gitout config.toml /backup/dest --dry-run
+```
 
 ## Migration phases
 
-- **Phase 0 (here):** safety net — characterization fixtures + tests + scaffolding.
-- **Phase 1:** core backup — config → GitHub discovery → parallel mirror clone → retry.
-- **Phase 2+:** resilience tracking, health checks, Telegram bot, semantic search, LFS.
+- **Phase 0 (done):** safety net — characterization fixtures + tests + scaffolding.
+- **Phase 1 (done):** core backup — config → GitHub discovery → parallel mirror clone
+  → retry, plus the Typer CLI and `--dry-run`. All characterization tests green.
+- **Phase 2+ (todo):** repository state tracking, failure tracking + circuit breaker +
+  storage pre-flight, large-repo/shallow-clone heuristics, LFS, maintenance, health
+  checks, cron scheduling, Telegram bot, and semantic search (Qdrant + Gemini).
