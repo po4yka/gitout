@@ -24,7 +24,7 @@ def test_dry_run_git_only(tmp_path: Path) -> None:
         tmp_path,
         'version = 0\n[git.repos]\nmirror = "https://example.com/x.git"\n',
     )
-    result = runner.invoke(cli.app, [str(config), str(tmp_path / "dest"), "--dry-run"])
+    result = runner.invoke(cli.app, ["sync", str(config), str(tmp_path / "dest"), "--dry-run"])
     assert result.exit_code == 0, result.output
     assert "DRY RUN" in result.output
     assert "clone --mirror -- https://example.com/x.git mirror" in result.output
@@ -32,7 +32,7 @@ def test_dry_run_git_only(tmp_path: Path) -> None:
 
 def test_invalid_config_exits_nonzero(tmp_path: Path) -> None:
     config = _write_config(tmp_path, "version = 1\n[search]\nenabled = true\ntop_k = 0\n")
-    result = runner.invoke(cli.app, [str(config), str(tmp_path / "dest"), "--dry-run"])
+    result = runner.invoke(cli.app, ["sync", str(config), str(tmp_path / "dest"), "--dry-run"])
     assert result.exit_code == 1
     assert "InvalidTopK" in result.output
 
@@ -63,7 +63,25 @@ def test_dry_run_github(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
         tmp_path,
         'version = 0\n[github]\nuser = "me"\ntoken = "tok"\n[github.clone]\ngists = true\n',
     )
-    result = runner.invoke(cli.app, [str(config), str(tmp_path / "dest"), "--dry-run"])
+    result = runner.invoke(cli.app, ["sync", str(config), str(tmp_path / "dest"), "--dry-run"])
     assert result.exit_code == 0, result.output
     assert "https://github.com/me/repo.git" in result.output
     assert "https://gist.github.com/g1.git" in result.output
+
+
+def test_search_not_enabled(tmp_path: Path) -> None:
+    config = _write_config(tmp_path, "version = 0\n")
+    result = runner.invoke(cli.app, ["search", "kotlin", str(config), str(tmp_path)])
+    assert result.exit_code == 0
+    assert "Search is not enabled" in result.output
+
+
+def test_index_without_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    config = _write_config(
+        tmp_path,
+        'version = 0\n[search]\nenabled = true\nqdrant_url = "http://localhost:6333"\n',
+    )
+    result = runner.invoke(cli.app, ["index", str(config), str(tmp_path)])
+    assert result.exit_code == 0
+    assert "No repository state found" in result.output

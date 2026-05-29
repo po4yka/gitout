@@ -32,6 +32,7 @@ from gitout.github import UserRepositories
 from gitout.lfs import LfsSupport
 from gitout.maintenance import RepositoryMaintenance
 from gitout.retry import RetryContext, RetryPolicy, SyncFailureException
+from gitout.state_tracker import ExcludedRepo, RepositoryStateTracker
 
 __all__ = [
     "Engine",
@@ -98,8 +99,14 @@ def collect_sync_tasks(
     destination: Path,
     user_repos: UserRepositories | None,
     credentials_path: str | None = None,
+    excluded: set[str] | None = None,
 ) -> list[SyncTask]:
-    """Build the ordered list of repositories to sync from config + discovered repos."""
+    """Build the ordered list of repositories to sync from config + discovered repos.
+
+    ``excluded`` names (deleted/inaccessible repos from the state tracker) are dropped,
+    just like the config's ``ignore`` list.
+    """
+    excluded = excluded or set()
     tasks: list[SyncTask] = []
 
     github = config.github
@@ -120,6 +127,8 @@ def collect_sync_tasks(
 
         for ignore in github.clone.ignore:
             reasons.pop(ignore, None)
+        for name in excluded:
+            reasons.pop(name, None)
 
         clone_destination = github_destination / "clone"
         for name_and_owner, why in reasons.items():
@@ -262,6 +271,36 @@ class Engine:
     lfs: LfsSupport | None = None
     _token: str | None = field(default=None, init=False, repr=False)
 
+    def _apply_state_tracking(self, user_repos: UserRepositories) -> set[str]:
+        """Detect repo state changes, maintain the exclusion list, persist state.
+
+        Returns the set of excluded (deleted/inaccessible) repo names to skip. A repo
+        that reappears in the API is re-included.
+        """
+        github_dir = self.destination / "github"
+        github_dir.mkdir(parents=True, exist_ok=True)
+        tracker = RepositoryStateTracker(github_dir / ".gitout-state.json")
+        metadata = user_repos.metadata
+        changes = tracker.detect_changes(metadata)
+
+        excluded = dict(tracker.get_excluded_repos())
+        now = int(time.time() * 1000)
+        for change in changes.deleted:
+            excluded.setdefault(
+                change.name,
+                ExcludedRepo(
+                    name=change.name,
+                    excluded_at=now,
+                    reason="deleted",
+                    last_metadata=change.metadata,
+                ),
+            )
+        for name in [n for n in excluded if n in metadata]:
+            del excluded[name]  # reappeared in the API
+
+        tracker.save_state(metadata, excluded)
+        return set(excluded)
+
     async def _discover(self) -> UserRepositories | None:
         github = self.config.github
         if github is None:
@@ -322,6 +361,10 @@ class Engine:
 
         user_repos = await self._discover()
 
+        excluded_names: set[str] = set()
+        if not dry_run and self.config.github is not None and user_repos is not None:
+            excluded_names = self._apply_state_tracking(user_repos)
+
         credentials_path = self.credentials_path
         temp_credentials: Path | None = None
         if (
@@ -335,7 +378,7 @@ class Engine:
 
         try:
             tasks = collect_sync_tasks(
-                self.config, self.destination, user_repos, credentials_path
+                self.config, self.destination, user_repos, credentials_path, excluded_names
             )
 
             if dry_run:

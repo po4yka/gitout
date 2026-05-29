@@ -39,7 +39,7 @@ def python_dry_run(config: str, dest: str) -> str | None:
     if not (PACKAGE_ROOT / "gitout" / "cli.py").exists():
         return None
     proc = subprocess.run(  # noqa: S603
-        [sys.executable, "-m", "gitout", "--dry-run", config, dest],
+        [sys.executable, "-m", "gitout", "sync", "--dry-run", config, dest],
         capture_output=True,
         text=True,
         check=False,

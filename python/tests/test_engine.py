@@ -148,6 +148,15 @@ def test_ignore_removes_candidate(tmp_path: Path) -> None:
     assert "other/star-1" not in tasks
 
 
+def test_excluded_repos_dropped(tmp_path: Path) -> None:
+    cfg = _config(starred=True)
+    tasks = _by_name(
+        collect_sync_tasks(cfg, tmp_path, _user_repos(), excluded={"other/star-1"})
+    )
+    assert "other/star-1" not in tasks
+    assert "me/owned-1" in tasks
+
+
 def test_custom_git_repos_included_without_github(tmp_path: Path) -> None:
     cfg = Config(version=1, git=GitConfig(repos={"mirror": "https://example.com/x.git"}))
     tasks = _by_name(collect_sync_tasks(cfg, tmp_path, None))

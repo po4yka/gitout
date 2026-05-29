@@ -200,6 +200,10 @@ class RepositoryStateTracker:
         with contextlib.suppress(OSError):
             self._state_file.write_text(json.dumps(payload, indent=2))
 
+    def load_repositories(self) -> dict[str, RepositoryMetadata]:
+        """Return the repositories from the saved state ({} when no state file)."""
+        return self._parse_repositories(self._load_state())
+
     def get_excluded_repos(self) -> dict[str, ExcludedRepo]:
         state = self._load_state()
         if state is None:

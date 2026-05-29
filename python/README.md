@@ -49,5 +49,19 @@ python -m gitout config.toml /backup/dest --dry-run
   (change detection + exclusions), post-sync maintenance (gc/repack/commit-graph + full
   repack cadence), Git LFS fetch, and the storage pre-flight check, all wired into the
   engine's parallel sync.
-- **Phase 3 (todo):** Telegram bot, semantic search (Qdrant + Gemini), Healthchecks.io
-  ping, cron scheduling, and large-repo/shallow-clone heuristics in the live sync path.
+- **Phase 3 (in progress):** semantic search (README extraction + Gemini embeddings +
+  Qdrant index + indexing/search orchestration), the `search`/`index` CLI subcommands,
+  and state-tracker exclusion wiring (deleted repos are skipped, re-included if they
+  reappear). Remaining: Telegram bot, Healthchecks.io ping, cron scheduling, and
+  large-repo/shallow-clone heuristics in the live sync path.
+
+## CLI
+
+```
+gitout sync CONFIG DESTINATION [--dry-run]   # back up repositories
+gitout search QUERY CONFIG DESTINATION       # semantic search
+gitout index CONFIG DESTINATION              # (re)index for semantic search
+```
+
+(The Kotlin tool uses `gitout CONFIG DEST` with no subcommand; sync is an explicit
+subcommand here because Typer/Click cannot mix positional root args with subcommands.)
