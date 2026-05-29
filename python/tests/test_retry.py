@@ -15,8 +15,6 @@ import pytest
 from gitout.errors import ErrorCategory
 from gitout.retry import BackoffStrategy, RetryContext, RetryPolicy, SyncFailureException
 
-pytestmark = pytest.mark.xfail(reason="gitout.retry not implemented (Phase 1)", strict=False)
-
 
 class SleepRecorder:
     """An injectable sleeper that records requested delays instead of waiting."""
