@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import tomllib
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
@@ -171,10 +172,10 @@ class Config:
     search: Search = field(default_factory=Search)
 
 
-def _build_message_map() -> dict[str, Any]:
+def _build_message_map() -> dict[str, Callable[[dict[str, Any]], str]]:
     """Return a mapping from error code to a callable(detail) -> str."""
 
-    def _fmt(template: str) -> Any:
+    def _fmt(template: str) -> Callable[[dict[str, Any]], str]:
         """Return a callable that formats ``template`` with detail keys."""
 
         def _inner(d: dict[str, Any]) -> str:
@@ -272,7 +273,7 @@ def _build_message_map() -> dict[str, Any]:
     }
 
 
-_MESSAGE_MAP: dict[str, Any] = _build_message_map()
+_MESSAGE_MAP: dict[str, Callable[[dict[str, Any]], str]] = _build_message_map()
 
 
 @dataclass(frozen=True)

@@ -46,7 +46,7 @@ def metadata_from_dict(data: dict[str, Any]) -> RepositoryMetadata:
         is_fork=data["isFork"],
         visibility=data["visibility"],
         description=data.get("description"),
-        updated_at=data.get("updatedAt"),
+        updated_at=data["updatedAt"],
         repo_type=data["repoType"],
         disk_usage_kb=data.get("diskUsageKb"),
         default_branch=data.get("defaultBranch"),
