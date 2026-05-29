@@ -213,7 +213,13 @@ def parse(toml_text: str) -> Config:
     telegram: Telegram | None = None
     tg = raw.get("telegram")
     if tg is not None:
-        telegram = Telegram(**_known_kwargs(Telegram, tg))
+        telegram_kwargs = _known_kwargs(Telegram, tg)
+        if "allowed_users" in telegram_kwargs:
+            # Telegram user ids may be given as ints or quoted strings in TOML.
+            telegram_kwargs["allowed_users"] = [
+                int(user) for user in telegram_kwargs["allowed_users"]
+            ]
+        telegram = Telegram(**telegram_kwargs)
 
     return Config(
         version=raw.get("version", 0),

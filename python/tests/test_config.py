@@ -33,6 +33,15 @@ def test_parse_normalizes_to_expected_dict(case: dict) -> None:
     assert cfg.to_normalized_dict(parsed) == case["expected"]
 
 
+def test_parse_coerces_allowed_users_int_or_string() -> None:
+    toml_text = (
+        'version = 0\n[telegram]\nchat_id = "1"\nallowed_users = ["42", 99]\n'
+    )
+    parsed = cfg.parse(toml_text)
+    assert parsed.telegram is not None
+    assert parsed.telegram.allowed_users == [42, 99]
+
+
 # --- validate(): (id, config, codes that MUST appear, codes that MUST NOT appear) ---
 _VALIDATE_CASES: list[tuple[str, Config, set[str], set[str]]] = [
     ("valid_minimal", Config(version=1), set(), {"InvalidVersion"}),
