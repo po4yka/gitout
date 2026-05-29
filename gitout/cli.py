@@ -7,7 +7,6 @@ Subcommands:
 
 Note: unlike the Kotlin CLI (``gitout CONFIG DEST``), sync is an explicit
 subcommand here — Typer/Click cannot mix positional root args with subcommands.
-Cron scheduling is deferred to a later phase.
 """
 
 from __future__ import annotations

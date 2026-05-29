@@ -1,13 +1,11 @@
-"""Sync engine: task collection and parallel mirror/update execution.
+"""Sync engine: token resolution, task collection, and parallel mirror/update execution.
 
-Port of the core of ``Engine.kt`` (the backup path): GitHub token resolution,
+Port of ``Engine.kt``. Handles GitHub token resolution, credentials setup,
 sync-task collection, the ``DRY RUN`` plan line, and parallel execution with an
-``asyncio.Semaphore`` worker pool and per-repo retry.
-
-Deferred to later phases (present in Kotlin, not yet ported): repository state
-tracking / exclusions, failure tracking, circuit breaker + storage pre-flight,
-large-repo/shallow-clone heuristics, LFS, maintenance, health checks, cron,
-Telegram, and search indexing.
+``asyncio.Semaphore`` worker pool and per-repo retry. Lifecycle wiring includes
+repository state tracking and exclusions, failure tracking, circuit breaker and
+storage pre-flight, large-repo/shallow-clone heuristics, LFS, maintenance,
+health checks, Telegram notifications, and search indexing.
 """
 
 from __future__ import annotations

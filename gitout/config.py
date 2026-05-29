@@ -1,8 +1,10 @@
 """Configuration model and TOML parsing.
 
-Port of ``Config.kt``. The dataclasses and their defaults are the spec (they mirror
-the Kotlin ``@Serializable`` classes, with field names matching the TOML / ``@SerialName``
-keys). ``parse``, ``validate`` and ``to_normalized_dict`` are implemented in Phase 1.
+Port of ``Config.kt``. The dataclasses and their defaults are the spec (they
+mirror the Kotlin ``@Serializable`` classes, with field names matching the TOML
+/ ``@SerialName`` keys). ``parse`` loads and coerces a TOML file into the
+dataclass tree, ``validate`` enforces cross-field invariants, and
+``to_normalized_dict`` serialises the config for logging and diagnostics.
 """
 
 from __future__ import annotations
