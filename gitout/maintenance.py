@@ -62,7 +62,8 @@ class RepositoryMaintenance:
                 ["git", "-C", abs_path, "commit-graph", "write", "--reachable"], repo_path
             )
 
-    def should_run_full_repack(self) -> bool:
+    def register_sync_and_check_repack(self) -> bool:
+        """Record that a sync completed and return whether a periodic full repack is now due."""
         if not self._config.enabled:
             return False
         self._sync_count += 1

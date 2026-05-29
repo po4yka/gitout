@@ -31,23 +31,23 @@ def _make(config: Maintenance) -> tuple[RepositoryMaintenance, RecordingRunner]:
 
 def test_full_repack_disabled() -> None:
     m, _ = _make(Maintenance(enabled=False))
-    assert m.should_run_full_repack() is False
+    assert m.register_sync_and_check_repack() is False
 
 
 def test_full_repack_never() -> None:
     m, _ = _make(Maintenance(enabled=True, full_repack_interval="never"))
-    assert all(m.should_run_full_repack() is False for _ in range(100))
+    assert all(m.register_sync_and_check_repack() is False for _ in range(100))
 
 
 def test_full_repack_weekly_every_7() -> None:
     m, _ = _make(Maintenance(enabled=True, full_repack_interval="weekly"))
-    results = [m.should_run_full_repack() for _ in range(14)]
+    results = [m.register_sync_and_check_repack() for _ in range(14)]
     assert [i + 1 for i, r in enumerate(results) if r] == [7, 14]
 
 
 def test_full_repack_monthly_every_30() -> None:
     m, _ = _make(Maintenance(enabled=True, full_repack_interval="monthly"))
-    results = [m.should_run_full_repack() for _ in range(30)]
+    results = [m.register_sync_and_check_repack() for _ in range(30)]
     assert [i + 1 for i, r in enumerate(results) if r] == [30]
 
 

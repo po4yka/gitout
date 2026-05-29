@@ -259,7 +259,7 @@ class SpyMaintenance:
     def run_post_sync_maintenance(self, path: Path) -> None:
         self.synced.append(path)
 
-    def should_run_full_repack(self) -> bool:
+    def register_sync_and_check_repack(self) -> bool:
         return False
 
     def run_full_repack(self, path: Path) -> None:  # pragma: no cover - not triggered here

@@ -458,7 +458,7 @@ class Engine:
 
             if tracker is not None:
                 tracker.save_state()
-            if maint is not None and maint.should_run_full_repack():
+            if maint is not None and maint.register_sync_and_check_repack():
                 await asyncio.to_thread(maint.run_full_repack, self.destination)
 
             # Auto-index for semantic search, then signal the healthcheck.
