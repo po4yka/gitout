@@ -8,6 +8,7 @@ call is a no-op. The interactive long-polling command bot is intentionally not p
 
 from __future__ import annotations
 
+import html
 import logging
 import os
 from collections.abc import Callable, Mapping
@@ -17,7 +18,10 @@ from pathlib import Path
 
 import httpx
 
+from gitout import __version__
 from gitout.config import DEFAULT_TELEGRAM_PROGRESS_STEP_PERCENT, Telegram
+from gitout.search.index_service import SearchIndexService
+from gitout.state_tracker import RepositoryStateTracker
 
 log = logging.getLogger(__name__)
 
@@ -84,6 +88,9 @@ class TelegramNotificationService:
         *,
         environ: Mapping[str, str] | None = None,
         sender: MessageSender | None = None,
+        search_index_service: SearchIndexService | None = None,
+        search_destination: Path | None = None,
+        started_at: datetime | None = None,
     ) -> None:
         environ = os.environ if environ is None else environ
         self._config = config
@@ -98,6 +105,14 @@ class TelegramNotificationService:
         self._progress_step = max(step, 1)
         self._sender = sender
         self._stats = SyncStats()
+        self._search = search_index_service
+        self._search_destination = search_destination
+        self._started_at = started_at or datetime.now()  # noqa: DTZ005 - uptime display only
+        self._failed: list[FailedRepoSummary] = []
+
+    def record_failures(self, failures: list[FailedRepoSummary]) -> None:
+        """Store the latest failed-repo summaries for the /fails command."""
+        self._failed = list(failures)
 
     @property
     def stats(self) -> SyncStats:
@@ -185,6 +200,158 @@ class TelegramNotificationService:
             f"Failed: {failed}\n"
             f"Duration: {format_duration(duration_seconds)}"
         )
+
+    # --- interactive command handlers ---
+
+    async def handle_command(
+        self, command: str, args: list[str], user_id: int | None
+    ) -> str | None:
+        """Dispatch a bot command to its handler. Returns the HTML reply, or None.
+
+        None means "no reply" (unknown command, or a request from an unknown user).
+        Unauthorized users receive an explicit denial message.
+        """
+        if self._config is None or user_id is None:
+            return None
+        if user_id not in self._config.allowed_users:
+            return "<b>Unauthorized</b>\n\nYou are not authorized to use this bot."
+
+        if command == "ping":
+            return self._cmd_ping()
+        if command == "start":
+            return self._cmd_start()
+        if command == "help":
+            return self._cmd_help()
+        if command == "status":
+            return self._cmd_status()
+        if command == "stats":
+            return self._cmd_stats()
+        if command == "fails":
+            return self._cmd_fails()
+        if command == "info":
+            return self._cmd_info()
+        if command == "find":
+            return await self._cmd_find(args)
+        if command == "reindex":
+            return await self._cmd_reindex()
+        return None
+
+    def _cmd_ping(self) -> str:
+        uptime = int((datetime.now() - self._started_at).total_seconds())  # noqa: DTZ005
+        status = "Active" if self.is_enabled() else "Inactive"
+        return f"<b>Pong!</b>\n\n<b>Status:</b> {status}\n<b>Uptime:</b> {format_duration(uptime)}"
+
+    @staticmethod
+    def _cmd_start() -> str:
+        return (
+            "Welcome to GitOut Bot!\n\nAvailable commands:\n"
+            "/status - Get current sync status\n"
+            "/stats - Get repository statistics\n"
+            "/info - Get bot and repository information\n"
+            "/find <query> - Search repositories by natural language\n"
+            "/reindex - Re-index all repositories for search\n"
+            "/help - Show this help message"
+        )
+
+    @staticmethod
+    def _cmd_help() -> str:
+        return (
+            "<b>GitOut Bot Help</b>\n\n"
+            "<b>Available Commands:</b>\n"
+            "/status - Get current synchronization status\n"
+            "/stats - Get repository statistics and last sync time\n"
+            "/info - Get bot and repository information\n"
+            "/find <query> - Search repositories by natural language\n"
+            "/reindex - Re-index all repositories for search\n"
+            "/help - Show this help message\n\n"
+            "<i>This bot monitors GitOut repository synchronization and sends notifications.</i>"
+        )
+
+    def _cmd_status(self) -> str:
+        title = "Sync in Progress" if self._stats.is_syncing else "Last Sync Status"
+        return f"<b>{title}</b>\n\n{self._stats.last_sync_status}"
+
+    def _cmd_stats(self) -> str:
+        stats = self._stats
+        if stats.last_sync_time is None:
+            return "<b>Repository Statistics</b>\n\nNo synchronization has been performed yet."
+        total = stats.total_repositories
+        rate = int(stats.successful_repositories / total * 100) if total > 0 else 0
+        lines = [
+            "<b>Repository Statistics</b>\n",
+            f"<b>Last Sync:</b> {stats.last_sync_time}",
+            f"<b>Total Repositories:</b> {total}",
+            f"<b>Successful:</b> {stats.successful_repositories}",
+        ]
+        if stats.failed_repositories > 0:
+            lines.append(f"<b>Failed:</b> {stats.failed_repositories}")
+        lines.append(f"<b>Success Rate:</b> {rate}%")
+        return "\n".join(lines)
+
+    def _cmd_fails(self) -> str:
+        if not self._failed:
+            return "<b>No recent repository failures.</b>"
+        lines = ["<b>Recent Repository Failures</b>", ""]
+        for summary in self._failed[:10]:
+            attempts = f" ({summary.retry_attempts} attempts)" if summary.retry_attempts > 1 else ""
+            lines.append(f"- <code>{summary.name}</code> [{summary.category}]{attempts}")
+            lines.append(f"  {summary.error_message.strip()}")
+            lines.append("")
+        if len(self._failed) > 10:
+            lines.append(f"...and {len(self._failed) - 10} more")
+        return "\n".join(lines).rstrip()
+
+    def _cmd_info(self) -> str:
+        config = self._config
+        assert config is not None  # handle_command guarantees this
+        return (
+            "<b>GitOut Bot Information</b>\n\n"
+            f"<b>Version:</b> {__version__}\n"
+            f"<b>Status:</b> {'Active' if self.is_enabled() else 'Inactive'}\n"
+            "<b>Notifications:</b>\n"
+            f"  - Start: {'Enabled' if config.notify_start else 'Disabled'}\n"
+            f"  - Progress: {'Enabled' if config.notify_progress else 'Disabled'}\n"
+            f"  - Completion: {'Enabled' if config.notify_completion else 'Disabled'}\n"
+            f"  - Errors: {'Enabled' if config.notify_errors else 'Disabled'}\n"
+            f"<b>Commands:</b> {'Enabled' if config.enable_commands else 'Disabled'}\n"
+            f"<b>Authorized Users:</b> {len(config.allowed_users)}"
+        )
+
+    async def _cmd_find(self, args: list[str]) -> str:
+        if self._search is None:
+            return "Search is not enabled. Add [search] configuration to enable it."
+        query = " ".join(args).strip()
+        if not query:
+            return "Usage: /find <query>\n\nExample: /find OAuth authentication library"
+        results = await self._search.search(query)
+        if not results:
+            return f'No repositories found matching "{html.escape(query)}"'
+        lines = [f'<b>Results for "{html.escape(query)}":</b>', ""]
+        for index, result in enumerate(results[:10], start=1):
+            name = result.payload.get("name") or result.id
+            description = result.payload.get("description") or ""
+            language = result.payload.get("language") or "unknown"
+            topics = ", ".join(result.payload.get("topics") or []) or "none"
+            desc = description or "(no description)"
+            lines.append(f"{index}. <code>{html.escape(str(name))}</code> ({result.score:.2f})")
+            lines.append(f"   {html.escape(desc)}")
+            lines.append(f"   Language: {language} | Topics: {topics}")
+            lines.append("")
+        return "\n".join(lines).rstrip()
+
+    async def _cmd_reindex(self) -> str:
+        if self._search is None or self._search_destination is None:
+            return "Search is not enabled. Add [search] configuration to enable it."
+        state_file = self._search_destination / "github" / ".gitout-state.json"
+        if not state_file.exists():
+            return "No repository state found. Run a sync first."
+        try:
+            repos = RepositoryStateTracker(state_file).load_repositories()
+            clone_dir = self._search_destination / "github" / "clone"
+            await self._search.index_repositories(repos, clone_dir)
+            return f"Re-index complete. Indexed {len(repos)} repositories."
+        except Exception as exc:  # noqa: BLE001 - reported back to the user
+            return f"Re-index failed: {html.escape(str(exc))}"
 
 
 def _now() -> str:

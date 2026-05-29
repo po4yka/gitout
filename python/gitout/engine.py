@@ -24,7 +24,7 @@ from urllib.parse import quote
 
 from gitout.circuit_breaker import StorageCircuitBreaker
 from gitout.config import Config
-from gitout.errors import classify
+from gitout.errors import classify, display_name
 from gitout.failure_tracker import FailureTracker
 from gitout.git_commands import build_git_command
 from gitout.git_exec import resolve_git_executable
@@ -35,7 +35,7 @@ from gitout.maintenance import RepositoryMaintenance
 from gitout.retry import RetryContext, RetryPolicy, SyncFailureException
 from gitout.search.index_service import SearchIndexService
 from gitout.state_tracker import ExcludedRepo, RepositoryStateTracker
-from gitout.telegram import TelegramNotificationService
+from gitout.telegram import FailedRepoSummary, TelegramNotificationService
 
 __all__ = [
     "Engine",
@@ -441,6 +441,19 @@ class Engine:
                 successful = sum(1 for outcome in results if outcome.ok)
                 self.telegram.notify_sync_completion(
                     successful, len(results) - successful, int(time.monotonic() - start_time)
+                )
+                self.telegram.record_failures(
+                    [
+                        FailedRepoSummary(
+                            name=outcome.task.name,
+                            url=outcome.task.url,
+                            error_message=outcome.error or "",
+                            category=display_name(classify(outcome.error or "")),
+                            retry_attempts=1,
+                        )
+                        for outcome in results
+                        if not outcome.ok and not outcome.skipped
+                    ]
                 )
 
             if tracker is not None:

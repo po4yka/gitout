@@ -90,7 +90,12 @@ def sync(
     health_check = HealthCheckService(hc_host).new_check(hc_id) if hc_id else None
 
     telegram = (
-        TelegramNotificationService(cfg.telegram, environ=os.environ)
+        TelegramNotificationService(
+            cfg.telegram,
+            environ=os.environ,
+            search_index_service=search_service,
+            search_destination=destination,
+        )
         if cfg.telegram is not None and not dry_run
         else None
     )

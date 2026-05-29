@@ -7,7 +7,13 @@ from dataclasses import replace
 from pathlib import Path
 
 from gitout.config import Telegram
-from gitout.telegram import SyncStats, TelegramNotificationService, resolve_telegram_token
+from gitout.search.qdrant import SearchResult
+from gitout.telegram import (
+    FailedRepoSummary,
+    SyncStats,
+    TelegramNotificationService,
+    resolve_telegram_token,
+)
 
 
 def _service(
@@ -119,3 +125,87 @@ def test_is_authorized() -> None:
     service = _service(config)
     assert service.is_authorized(42) is True
     assert service.is_authorized(7) is False
+
+
+# --- interactive command handlers ---
+
+
+class FakeSearch:
+    def __init__(self, results: list[SearchResult] | None = None) -> None:
+        self.results = results or []
+
+    async def search(self, query: str) -> list[SearchResult]:
+        return self.results
+
+
+def _command_service(**kwargs: object) -> TelegramNotificationService:
+    config = Telegram(chat_id="1", token="t", enabled=True, allowed_users=[42])
+    return TelegramNotificationService(config, environ={}, sender=lambda _m: None, **kwargs)  # type: ignore[arg-type]
+
+
+async def test_command_unknown_user_returns_none() -> None:
+    assert await _command_service().handle_command("status", [], None) is None
+
+
+async def test_command_unauthorized_user() -> None:
+    reply = await _command_service().handle_command("status", [], user_id=7)
+    assert reply is not None and "Unauthorized" in reply
+
+
+async def test_command_ping_help_start() -> None:
+    service = _command_service()
+    assert "Pong" in (await service.handle_command("ping", [], 42) or "")
+    assert "Bot Help" in (await service.handle_command("help", [], 42) or "")
+    assert "Welcome" in (await service.handle_command("start", [], 42) or "")
+
+
+async def test_command_status_and_stats() -> None:
+    service = _command_service()
+    status = await service.handle_command("status", [], 42)
+    assert status is not None and "Last Sync Status" in status
+    # Before any sync, stats has no last_sync_time.
+    stats = await service.handle_command("stats", [], 42)
+    assert stats is not None and "No synchronization has been performed yet" in stats
+    # After a completion, stats reports counts.
+    service.notify_sync_completion(8, 2, 60)
+    stats2 = await service.handle_command("stats", [], 42)
+    assert stats2 is not None and "Success Rate:" in stats2
+
+
+async def test_command_fails() -> None:
+    service = _command_service()
+    assert "No recent repository failures" in (await service.handle_command("fails", [], 42) or "")
+    service.record_failures(
+        [FailedRepoSummary("u/r", "https://x/r.git", "boom", "Network Error", 3)]
+    )
+    reply = await service.handle_command("fails", [], 42)
+    assert reply is not None
+    assert "u/r" in reply and "Network Error" in reply and "(3 attempts)" in reply
+
+
+async def test_command_info() -> None:
+    reply = await _command_service().handle_command("info", [], 42)
+    assert reply is not None
+    assert "Bot Information" in reply and "Authorized Users:</b> 1" in reply
+
+
+async def test_command_find() -> None:
+    # No search configured.
+    assert "not enabled" in (await _command_service().handle_command("find", ["q"], 42) or "")
+    # Missing query.
+    service = _command_service(search_index_service=FakeSearch())
+    assert "Usage:" in (await service.handle_command("find", [], 42) or "")
+    # With results.
+    service = _command_service(
+        search_index_service=FakeSearch(
+            [SearchResult(id="p1", score=0.9, payload={"name": "u/repo", "language": "Python"})]
+        )
+    )
+    reply = await service.handle_command("find", ["oauth", "lib"], 42)
+    assert reply is not None and "u/repo" in reply and "(0.90)" in reply
+
+
+async def test_command_reindex_without_state(tmp_path: Path) -> None:
+    service = _command_service(search_index_service=FakeSearch(), search_destination=tmp_path)
+    reply = await service.handle_command("reindex", [], 42)
+    assert reply is not None and "Run a sync first" in reply
