@@ -14,11 +14,13 @@ from __future__ import annotations
 
 import asyncio
 import os
+from datetime import datetime
 from pathlib import Path
 
 import typer
 
 from gitout import config as config_module
+from gitout.cron import run_cron
 from gitout.engine import Engine
 from gitout.gemini_key import resolve_gemini_api_key
 from gitout.github_client import load_repositories
@@ -53,6 +55,9 @@ def sync(
     ),
     hc_host: str = typer.Option(
         DEFAULT_HEALTHCHECK_HOST, "--hc-host", envvar="GITOUT_HC_HOST", help="Healthchecks.io host"
+    ),
+    cron: str | None = typer.Option(
+        None, "--cron", envvar="GITOUT_CRON", help="Run forever, syncing on this cron schedule"
     ),
 ) -> None:
     """Back up repositories described by the config into the destination."""
@@ -93,6 +98,19 @@ def sync(
         search_index_service=search_service,
         health_check=health_check,
     )
+
+    if cron:
+
+        async def scheduled() -> None:
+            try:
+                await engine.perform_sync(dry_run=dry_run)
+            except Exception as exc:  # noqa: BLE001 - keep the schedule alive across failures
+                typer.echo(f"Scheduled sync failed: {exc}", err=True)
+
+        typer.echo(f"Running on schedule: {cron}")
+        asyncio.run(run_cron(cron, scheduled, sleep=asyncio.sleep, now=datetime.now))
+        return
+
     outcomes = asyncio.run(engine.perform_sync(dry_run=dry_run))
 
     if dry_run:
