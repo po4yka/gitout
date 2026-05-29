@@ -42,7 +42,7 @@ class FakeRunner:
         self.output = output
         self.calls: list[tuple[list[str], Path, float]] = []
 
-    async def __call__(self, argv: list[str], cwd: Path, timeout: float) -> tuple[int, str]:
+    async def __call__(self, argv: list[str], cwd: Path, timeout: float) -> tuple[int, str]:  # noqa: ASYNC109 – protocol parameter, not asyncio.timeout()
         self.calls.append((argv, cwd, timeout))
         return self.code, self.output
 

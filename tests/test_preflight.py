@@ -10,7 +10,7 @@ from gitout.engine import preflight_storage_check
 async def test_passes_on_writable_directory(tmp_path: Path) -> None:
     assert await preflight_storage_check(tmp_path, timeout_ms=5000) is None
     # Sentinel is cleaned up.
-    assert list(tmp_path.iterdir()) == []
+    assert list(tmp_path.iterdir()) == []  # noqa: ASYNC240 – test assertion only, not production I/O
 
 
 async def test_fails_when_directory_missing(tmp_path: Path) -> None:
