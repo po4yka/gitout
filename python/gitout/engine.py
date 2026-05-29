@@ -13,9 +13,12 @@ Telegram, and search indexing.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import tempfile
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import quote
 
 from gitout.config import Config
 from gitout.git_commands import build_git_command
@@ -158,6 +161,15 @@ def dry_run_line(task: SyncTask, config: Config) -> str:
     return f"DRY RUN {directory} {' '.join(argv)}"
 
 
+def _write_credentials(user: str, token: str) -> Path:
+    """Write a git credential-store file with the GitHub https URL (deleted after sync)."""
+    fd, path = tempfile.mkstemp(prefix="gitout-credentials-")
+    url = f"https://{quote(user, safe='')}:{quote(token, safe='')}@github.com"
+    with open(fd, "w") as handle:
+        handle.write(url)
+    return Path(path)
+
+
 async def default_git_runner(argv: list[str], cwd: Path, timeout_seconds: float) -> tuple[int, str]:
     """Run git via a subprocess, capturing combined output, honouring a timeout."""
     process = await asyncio.create_subprocess_exec(
@@ -185,6 +197,8 @@ class Engine:
     workers: int | None = None
     timeout_seconds: float = 600.0
     credentials_path: str | None = None
+    retry_policy: RetryPolicy = field(default_factory=RetryPolicy)
+    _token: str | None = field(default=None, init=False, repr=False)
 
     async def _discover(self) -> UserRepositories | None:
         github = self.config.github
@@ -192,36 +206,51 @@ class Engine:
             return None
         if self.repo_loader is None:
             raise RuntimeError("repo_loader is required when [github] is configured")
-        token = resolve_github_token(github.token, self.environ)
-        return await self.repo_loader(github.user, token)
+        self._token = resolve_github_token(github.token, self.environ)
+        return await self.repo_loader(github.user, self._token)
 
     async def perform_sync(self, dry_run: bool = False) -> list[SyncOutcome]:
         user_repos = await self._discover()
-        tasks = collect_sync_tasks(
-            self.config, self.destination, user_repos, self.credentials_path
-        )
 
-        if dry_run:
-            for task in tasks:
-                print(dry_run_line(task, self.config))
-            return [SyncOutcome(task=t, ok=True) for t in tasks]
+        credentials_path = self.credentials_path
+        temp_credentials: Path | None = None
+        if (
+            not dry_run
+            and self.config.github is not None
+            and self._token
+            and credentials_path is None
+        ):
+            temp_credentials = _write_credentials(self.config.github.user, self._token)
+            credentials_path = str(temp_credentials)
 
-        worker_count = self.workers or self.config.parallelism.workers
-        semaphore = asyncio.Semaphore(worker_count)
+        try:
+            tasks = collect_sync_tasks(
+                self.config, self.destination, user_repos, credentials_path
+            )
 
-        async def run(task: SyncTask) -> SyncOutcome:
-            async with semaphore:
-                return await self._sync_one(task)
+            if dry_run:
+                for task in tasks:
+                    print(dry_run_line(task, self.config))
+                return [SyncOutcome(task=t, ok=True) for t in tasks]
 
-        return list(await asyncio.gather(*(run(t) for t in tasks)))
+            worker_count = self.workers or self.config.parallelism.workers
+            semaphore = asyncio.Semaphore(worker_count)
+
+            async def run(task: SyncTask) -> SyncOutcome:
+                async with semaphore:
+                    return await self._sync_one(task)
+
+            return list(await asyncio.gather(*(run(t) for t in tasks)))
+        finally:
+            if temp_credentials is not None:
+                with contextlib.suppress(OSError):
+                    temp_credentials.unlink()
 
     async def _sync_one(self, task: SyncTask) -> SyncOutcome:
         is_clone = not task.destination.exists()
         cwd = task.destination.parent if is_clone else task.destination
         if is_clone:
             cwd.mkdir(parents=True, exist_ok=True)
-
-        retry_policy = RetryPolicy()
 
         async def operation(context: RetryContext) -> str:
             argv = _build_argv(task, self.config, force_http1=context.should_use_http1_fallback)
@@ -231,7 +260,7 @@ class Engine:
             return output
 
         try:
-            await retry_policy.execute(operation, operation_description=task.url)
+            await self.retry_policy.execute(operation, operation_description=task.url)
             return SyncOutcome(task=task, ok=True)
         except Exception as exc:  # noqa: BLE001 - surfaced as an outcome, not raised
             return SyncOutcome(task=task, ok=False, error=str(exc))

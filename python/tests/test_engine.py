@@ -11,8 +11,30 @@ from pathlib import Path
 import pytest
 
 from gitout.config import Config, GitConfig, GitHubClone, GitHubConfig
-from gitout.engine import SyncTask, collect_sync_tasks, dry_run_line, resolve_github_token
+from gitout.engine import (
+    Engine,
+    SyncTask,
+    collect_sync_tasks,
+    dry_run_line,
+    resolve_github_token,
+)
 from gitout.github import RepositoryMetadata, UserRepositories
+from gitout.retry import RetryPolicy
+
+
+class FakeRunner:
+    def __init__(self, code: int = 0, output: str = "") -> None:
+        self.code = code
+        self.output = output
+        self.calls: list[tuple[list[str], Path, float]] = []
+
+    async def __call__(self, argv: list[str], cwd: Path, timeout: float) -> tuple[int, str]:
+        self.calls.append((argv, cwd, timeout))
+        return self.code, self.output
+
+
+async def _noop_sleep(ms: int) -> None:
+    return None
 
 # --- token resolution: config > GITHUB_TOKEN_FILE > GITHUB_TOKEN ---
 
@@ -150,3 +172,40 @@ def test_dry_run_line_update_existing_repo(tmp_path: Path) -> None:
     # repo dir exists -> update in place.
     assert line.startswith(f"DRY RUN {dest} git -c safe.directory=*")
     assert line.endswith("remote update --prune")
+
+
+# --- async execution ---
+
+
+async def test_perform_sync_runs_git_and_creates_parent(tmp_path: Path) -> None:
+    cfg = Config(version=1, git=GitConfig(repos={"mirror": "https://example.com/x.git"}))
+    runner = FakeRunner()
+    engine = Engine(config=cfg, destination=tmp_path, git_runner=runner)
+
+    outcomes = await engine.perform_sync(dry_run=False)
+
+    assert [o.ok for o in outcomes] == [True]
+    assert len(runner.calls) == 1
+    argv, cwd, _ = runner.calls[0]
+    assert "clone" in argv and "--mirror" in argv
+    assert cwd == tmp_path / "git"
+    assert cwd.exists()
+
+
+async def test_perform_sync_retries_then_reports_failure(tmp_path: Path) -> None:
+    cfg = Config(version=1, git=GitConfig(repos={"mirror": "https://example.com/x.git"}))
+    runner = FakeRunner(code=128, output="fatal: the remote end hung up unexpectedly")
+    engine = Engine(
+        config=cfg,
+        destination=tmp_path,
+        git_runner=runner,
+        retry_policy=RetryPolicy(max_attempts=2, base_delay_ms=0, sleep=_noop_sleep),
+    )
+
+    outcomes = await engine.perform_sync(dry_run=False)
+
+    assert outcomes[0].ok is False
+    # The retry wraps the git output in a SyncFailureException summary.
+    assert "after 2 attempts" in (outcomes[0].error or "")
+    assert "NETWORK_ERROR" in (outcomes[0].error or "")
+    assert len(runner.calls) == 2  # NETWORK_ERROR is retryable -> one retry
