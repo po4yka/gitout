@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import shutil
 import tempfile
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
+from functools import cache
 from pathlib import Path
 from urllib.parse import quote
 
@@ -134,6 +136,12 @@ def collect_sync_tasks(
     return tasks
 
 
+@cache
+def resolve_git_executable() -> str:
+    """Absolute path to ``git`` via PATH search, falling back to ``git`` (mirrors util.kt)."""
+    return shutil.which("git") or "git"
+
+
 def _build_argv(task: SyncTask, config: Config, *, force_http1: bool = False) -> list[str]:
     repo_exists = task.destination.exists()
     is_clone = not repo_exists
@@ -141,6 +149,7 @@ def _build_argv(task: SyncTask, config: Config, *, force_http1: bool = False) ->
         repo_exists=repo_exists,
         url=task.url if is_clone else None,
         repo_name=task.destination.name if is_clone else None,
+        git_executable=resolve_git_executable(),
         verify_certificates=config.ssl.verify_certificates,
         http_version=config.http.version,
         post_buffer_size=config.http.post_buffer_size,
@@ -210,6 +219,11 @@ class Engine:
         return await self.repo_loader(github.user, self._token)
 
     async def perform_sync(self, dry_run: bool = False) -> list[SyncOutcome]:
+        if self.config.version != 0:
+            raise ValueError("Only version 0 of the config is supported at this time")
+        if not dry_run and not self.destination.is_dir():
+            raise ValueError("Destination must exist and must be a directory")
+
         user_repos = await self._discover()
 
         credentials_path = self.credentials_path

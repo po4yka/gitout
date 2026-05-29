@@ -66,21 +66,29 @@ def main() -> int:
         print("parity check pending — missing: " + "; ".join(missing))
         return 0
 
-    diff = list(
-        difflib.unified_diff(
-            kotlin.splitlines(keepends=True),
-            python.splitlines(keepends=True),
-            fromfile="kotlin",
-            tofile="python",
-        )
-    )
-    if diff:
-        sys.stdout.writelines(diff)
-        print("\nPARITY MISMATCH")
+    # Compare only the planned git invocations (the contract). Each side wraps them in
+    # its own lifecycle chatter, and parallel execution makes ordering nondeterministic,
+    # so extract the "DRY RUN ..." lines and compare them as a sorted set.
+    kotlin_plan = _dry_run_lines(kotlin)
+    python_plan = _dry_run_lines(python)
+    if not kotlin_plan and not python_plan:
+        print("PARITY INCONCLUSIVE — neither side emitted any DRY RUN lines")
         return 1
 
-    print("PARITY OK")
+    diff = list(
+        difflib.unified_diff(kotlin_plan, python_plan, fromfile="kotlin", tofile="python")
+    )
+    if diff:
+        print("\n".join(diff))
+        print(f"\nPARITY MISMATCH ({len(kotlin_plan)} kotlin vs {len(python_plan)} python lines)")
+        return 1
+
+    print(f"PARITY OK — {len(python_plan)} planned git invocations match")
     return 0
+
+
+def _dry_run_lines(output: str) -> list[str]:
+    return sorted(line.rstrip() for line in output.splitlines() if line.startswith("DRY RUN "))
 
 
 if __name__ == "__main__":

@@ -22,7 +22,7 @@ def _write_config(tmp_path: Path, text: str) -> Path:
 def test_dry_run_git_only(tmp_path: Path) -> None:
     config = _write_config(
         tmp_path,
-        'version = 1\n[git.repos]\nmirror = "https://example.com/x.git"\n',
+        'version = 0\n[git.repos]\nmirror = "https://example.com/x.git"\n',
     )
     result = runner.invoke(cli.app, [str(config), str(tmp_path / "dest"), "--dry-run"])
     assert result.exit_code == 0, result.output
@@ -61,7 +61,7 @@ def test_dry_run_github(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(cli, "load_repositories", fake_loader)
     config = _write_config(
         tmp_path,
-        'version = 1\n[github]\nuser = "me"\ntoken = "tok"\n[github.clone]\ngists = true\n',
+        'version = 0\n[github]\nuser = "me"\ntoken = "tok"\n[github.clone]\ngists = true\n',
     )
     result = runner.invoke(cli.app, [str(config), str(tmp_path / "dest"), "--dry-run"])
     assert result.exit_code == 0, result.output
