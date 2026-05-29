@@ -1005,6 +1005,7 @@ internal class Engine(
 					add("--depth=1")
 					add("--single-branch")
 					if (showProgress) add("--progress")
+					add("--")
 					add(url)
 					add(repo.name)
 				} else if (singleBranchOnly) {
@@ -1017,6 +1018,7 @@ internal class Engine(
 						add(defaultBranch)
 					}
 					if (showProgress) add("--progress")
+					add("--")
 					add(url)
 					add(repo.name)
 				} else {
@@ -1024,9 +1026,13 @@ internal class Engine(
 					add("clone")
 					add("--mirror")
 					if (showProgress) add("--progress")
+					add("--")
 					add(url)
 					add(repo.name)
 				}
+			}
+			repo.parent.apply {
+				createDirectories()
 			}
 		} else {
 			command.apply {
