@@ -13,10 +13,6 @@ import pytest
 from gitout import github
 from tests.helpers import load_json
 
-pytestmark = pytest.mark.xfail(
-    reason="gitout.github not implemented (Phase 1)", strict=False, raises=NotImplementedError
-)
-
 _FIXTURE = load_json("github", "user_repos_pages.json")
 
 
