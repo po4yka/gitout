@@ -12,7 +12,14 @@ import pytest
 
 from gitout import engine as engine_module
 from gitout.circuit_breaker import StorageCircuitBreaker
-from gitout.config import Config, FailureTrackingConfig, GitConfig, GitHubClone, GitHubConfig
+from gitout.config import (
+    Config,
+    FailureTrackingConfig,
+    GitConfig,
+    GitHubClone,
+    GitHubConfig,
+    LargeRepoConfig,
+)
 from gitout.engine import (
     Engine,
     SyncTask,
@@ -338,3 +345,139 @@ async def test_preflight_failure_aborts_run(
     engine = Engine(config=_git_only(tmp_path), destination=tmp_path, git_runner=FakeRunner())
     with pytest.raises(RuntimeError, match="pre-flight"):
         await engine.perform_sync(dry_run=False)
+
+
+# --- large-repo heuristics + lifecycle ---
+
+
+def _big_repo_meta(name: str, size_kb: int, branch: str = "main") -> RepositoryMetadata:
+    return RepositoryMetadata(
+        name=name,
+        is_archived=False,
+        is_private=False,
+        is_fork=False,
+        visibility="PUBLIC",
+        description=None,
+        updated_at="2024-01-01T00:00:00Z",
+        repo_type="owned",
+        disk_usage_kb=size_kb,
+        default_branch=branch,
+    )
+
+
+def _github_config() -> Config:
+    return Config(
+        version=0,
+        github=GitHubConfig(user="me", token="t", clone=GitHubClone(gists=False)),
+        large_repos=LargeRepoConfig(
+            size_threshold_kb=1000,
+            shallow_clone_threshold_kb=5000,
+            shallow_clone_after_failures=1,
+            timeout_multiplier=3.0,
+        ),
+    )
+
+
+def test_collection_flags_large_repo(tmp_path: Path) -> None:
+    repos = UserRepositories(
+        owned={"u/big", "u/small"},
+        starred=set(),
+        watching=set(),
+        gists=set(),
+        metadata={
+            "u/big": _big_repo_meta("u/big", 6000),
+            "u/small": _big_repo_meta("u/small", 10),
+        },
+    )
+    cfg = Config(version=0, github=GitHubConfig(user="me", clone=GitHubClone(gists=False)),
+                 large_repos=LargeRepoConfig(size_threshold_kb=1000))
+    by_name = _by_name(collect_sync_tasks(cfg, tmp_path, repos))
+    assert by_name["u/big"].is_large_repo is True
+    assert by_name["u/big"].size_kb == 6000
+    assert by_name["u/small"].is_large_repo is False
+
+
+class SpySearch:
+    def __init__(self) -> None:
+        self.calls: list[tuple[dict, Path]] = []
+
+    async def index_repositories(self, metadata: dict, backup_dir: Path) -> None:
+        self.calls.append((metadata, backup_dir))
+
+
+class SpyStarted:
+    def __init__(self) -> None:
+        self.completed = False
+
+    async def complete(self) -> None:
+        self.completed = True
+
+
+class SpyHealthCheck:
+    def __init__(self) -> None:
+        self.started = SpyStarted()
+
+    async def start(self) -> SpyStarted:
+        return self.started
+
+
+async def test_healthcheck_and_autoindex_run_on_github_sync(tmp_path: Path) -> None:
+    async def loader(user: str, token: str) -> UserRepositories:
+        return UserRepositories(
+            owned={"u/repo"},
+            starred=set(),
+            watching=set(),
+            gists=set(),
+            metadata={"u/repo": _big_repo_meta("u/repo", 10)},
+        )
+
+    search = SpySearch()
+    health = SpyHealthCheck()
+    engine = Engine(
+        config=_github_config(),
+        destination=tmp_path,
+        repo_loader=loader,
+        git_runner=FakeRunner(),
+        search_index_service=search,  # type: ignore[arg-type]
+        health_check=health,  # type: ignore[arg-type]
+    )
+    await engine.perform_sync(dry_run=False)
+
+    assert health.started.completed is True
+    assert len(search.calls) == 1
+    metadata, backup_dir = search.calls[0]
+    assert "u/repo" in metadata
+    assert backup_dir == tmp_path / "github" / "clone"
+
+
+async def test_large_repo_uses_shallow_and_http1_from_failure_history(tmp_path: Path) -> None:
+    async def loader(user: str, token: str) -> UserRepositories:
+        return UserRepositories(
+            owned={"u/big"},
+            starred=set(),
+            watching=set(),
+            gists=set(),
+            metadata={"u/big": _big_repo_meta("u/big", 6000)},
+        )
+
+    tracker = FailureTracker(
+        tmp_path / "f.json", FailureTrackingConfig(enabled=True), now_ms=lambda: 0
+    )
+    # Seed history: a prior HTTP2 failure makes the strategy pick shallow + HTTP/1.1.
+    tracker.record_failure("u/big", "stream cancel", ErrorCategory.HTTP2_ERROR)
+
+    runner = FakeRunner()
+    engine = Engine(
+        config=_github_config(),
+        destination=tmp_path,
+        repo_loader=loader,
+        git_runner=runner,
+        failure_tracker=tracker,
+    )
+    await engine.perform_sync(dry_run=False)
+
+    assert len(runner.calls) == 1
+    argv = runner.calls[0][0]
+    assert "--depth=1" in argv  # shallow clone
+    assert "http.version=HTTP/1.1" in argv  # forced HTTP/1.1
+    assert "--progress" in argv  # large repos show progress

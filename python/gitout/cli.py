@@ -22,6 +22,7 @@ from gitout import config as config_module
 from gitout.engine import Engine
 from gitout.gemini_key import resolve_gemini_api_key
 from gitout.github_client import load_repositories
+from gitout.health_check import DEFAULT_HEALTHCHECK_HOST, HealthCheckService
 from gitout.search.gemini import GeminiEmbeddingClient
 from gitout.search.index_service import SearchIndexService
 from gitout.search.qdrant import QdrantClient
@@ -47,6 +48,12 @@ def sync(
     timeout: float = typer.Option(
         600.0, "--timeout", help="Per-repository git timeout in seconds"
     ),
+    hc_id: str | None = typer.Option(
+        None, "--hc-id", envvar="GITOUT_HC_ID", help="Healthchecks.io check id to ping"
+    ),
+    hc_host: str = typer.Option(
+        DEFAULT_HEALTHCHECK_HOST, "--hc-host", envvar="GITOUT_HC_HOST", help="Healthchecks.io host"
+    ),
 ) -> None:
     """Back up repositories described by the config into the destination."""
     cfg = config_module.parse(config.read_text())
@@ -57,6 +64,25 @@ def sync(
             typer.echo(f"  - {error.code} {error.detail}", err=True)
         raise typer.Exit(code=1)
 
+    search_service: SearchIndexService | None = None
+    if cfg.search.enabled and not dry_run:
+        api_key = resolve_gemini_api_key(os.environ)
+        if api_key is not None:
+            search_service = SearchIndexService(
+                GeminiEmbeddingClient(api_key),
+                QdrantClient(cfg.search.qdrant_url),
+                ReadmeExtractor(),
+                cfg.search,
+            )
+        else:
+            typer.echo(
+                "Search enabled but GEMINI_API_KEY/GEMINI_API_KEY_FILE not set; "
+                "skipping auto-indexing.",
+                err=True,
+            )
+
+    health_check = HealthCheckService(hc_host).new_check(hc_id) if hc_id else None
+
     engine = Engine(
         config=cfg,
         destination=destination,
@@ -64,6 +90,8 @@ def sync(
         environ=os.environ,
         workers=workers,
         timeout_seconds=timeout,
+        search_index_service=search_service,
+        health_check=health_check,
     )
     outcomes = asyncio.run(engine.perform_sync(dry_run=dry_run))
 
