@@ -171,6 +171,110 @@ class Config:
     search: Search = field(default_factory=Search)
 
 
+def _build_message_map() -> dict[str, Any]:
+    """Return a mapping from error code to a callable(detail) -> str."""
+
+    def _fmt(template: str) -> Any:
+        """Return a callable that formats ``template`` with detail keys."""
+
+        def _inner(d: dict[str, Any]) -> str:
+            return template.format_map(d)
+
+        return _inner
+
+    return {
+        "InvalidVersion": _fmt("version must be >= 0, got {version}"),
+        "EmptyGitHubUser": lambda d: "github.user must not be empty",
+        "NoGitHubCloneOptionsEnabled": lambda d: (
+            "github.clone has no clone options enabled "
+            "(set starred, watched, gists, or repos)"
+        ),
+        "EmptyGitRepoName": _fmt("git.repos has an entry with a blank name (url: {url})"),
+        "InvalidRepositoryName": _fmt(
+            'git.repos "{name}" is not a valid repository name '
+            "(must match [a-zA-Z0-9._/-]+ without .., leading/trailing or double slashes)"
+        ),
+        "EmptyGitRepoUrl": _fmt('git.repos "{name}" has a blank URL'),
+        "InvalidGitUrl": _fmt('git.repos "{name}" has an invalid URL: {url}'),
+        "CertFileNotFound": _fmt("ssl.cert_file not found: {path}"),
+        "InvalidWorkerCount": _fmt(
+            "parallelism.workers must be at least 1, got {count}"
+        ),
+        "TooManyWorkers": _fmt("parallelism.workers must be at most 32, got {count}"),
+        "InvalidProgressInterval": _fmt(
+            "parallelism.progress_interval_ms must be at least 100 ms, got {interval}"
+        ),
+        "InvalidRepositoryTimeout": _fmt(
+            "parallelism.repository_timeout_seconds must be at least 1, got {timeout}"
+        ),
+        "EmptyPriorityPattern": lambda d: (
+            "parallelism.priorities has an entry with a blank pattern"
+        ),
+        "InvalidPriorityTimeout": _fmt(
+            'parallelism.priorities pattern "{pattern}" timeout must be at least 1, got {timeout}'
+        ),
+        "InvalidMetricsFormat": _fmt(
+            'metrics.format must be one of "console", "json", "csv", got "{format}"'
+        ),
+        "EmptyMetricsExportPath": lambda d: "metrics.export_path must not be blank",
+        "EmptyTelegramChatId": lambda d: "telegram.chat_id must not be empty",
+        "InvalidTelegramProgressStep": _fmt(
+            "telegram.notify_progress_step_percent must be between 1 and 100, got {step}"
+        ),
+        "InvalidHttpVersion": _fmt(
+            'http.version must be "HTTP/1.1" or "HTTP/2", got "{version}"'
+        ),
+        "InvalidPostBufferSize": _fmt(
+            "http.post_buffer_size must be at least 1024 bytes, got {size}"
+        ),
+        "InvalidLowSpeedLimit": _fmt(
+            "http.low_speed_limit must be >= 0 bytes/second, got {limit}"
+        ),
+        "InvalidLowSpeedTime": _fmt(
+            "http.low_speed_time must be at least 1 second, got {time}"
+        ),
+        "InvalidLargeRepoThreshold": _fmt(
+            "large_repos.size_threshold_kb must be at least 1024 KB, got {threshold}"
+        ),
+        "InvalidTimeoutMultiplier": _fmt(
+            "large_repos.timeout_multiplier must be at least 1.0, got {multiplier}"
+        ),
+        "InvalidMaxParallelLargeRepos": _fmt(
+            "large_repos.max_parallel must be at least 1, got {count}"
+        ),
+        "InvalidShallowCloneFailures": _fmt(
+            "large_repos.shallow_clone_after_failures must be at least 1, got {count}"
+        ),
+        "InvalidMaxConsecutiveFailures": _fmt(
+            "failure_tracking.max_consecutive_failures must be at least 1, got {count}"
+        ),
+        "InvalidFailureCooldown": _fmt(
+            "failure_tracking.failure_cooldown_hours must be >= 0, got {hours}"
+        ),
+        "InvalidMaintenanceStrategy": _fmt(
+            'maintenance.strategy must be one of "gc-auto", "geometric", "none", got "{strategy}"'
+        ),
+        "InvalidFullRepackInterval": _fmt(
+            'maintenance.full_repack_interval must be one of "never", "weekly", "monthly", '
+            'got "{interval}"'
+        ),
+        "InvalidRepackWindow": _fmt(
+            "maintenance.repack_window must be at least 1, got {window}"
+        ),
+        "InvalidRepackDepth": _fmt(
+            "maintenance.repack_depth must be at least 1, got {depth}"
+        ),
+        "InvalidTopK": _fmt(
+            "search.top_k must be between 1 and 100, got {count}"
+        ),
+        "EmptyQdrantUrl": lambda d: "search.qdrant_url must not be blank",
+        "EmptyCollectionName": lambda d: "search.collection_name must not be blank",
+    }
+
+
+_MESSAGE_MAP: dict[str, Any] = _build_message_map()
+
+
 @dataclass(frozen=True)
 class ValidationError:
     """A configuration validation failure.
@@ -181,6 +285,15 @@ class ValidationError:
 
     code: str
     detail: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def message(self) -> str:
+        """Return a human-readable description of this validation error."""
+        formatter = _MESSAGE_MAP.get(self.code)
+        if formatter is not None:
+            return formatter(self.detail)
+        # Generic fallback for any unrecognised code (should not occur in practice).
+        return f"{self.code} {self.detail}" if self.detail else self.code
 
 
 def _known_kwargs(cls: type, data: dict[str, Any]) -> dict[str, Any]:

@@ -34,7 +34,7 @@ def test_invalid_config_exits_nonzero(tmp_path: Path) -> None:
     config = _write_config(tmp_path, "version = 1\n[search]\nenabled = true\ntop_k = 0\n")
     result = runner.invoke(cli.app, ["sync", str(config), str(tmp_path / "dest"), "--dry-run"])
     assert result.exit_code == 1
-    assert "InvalidTopK" in result.output
+    assert "search.top_k must be between 1 and 100, got 0" in result.output
 
 
 def test_dry_run_github(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

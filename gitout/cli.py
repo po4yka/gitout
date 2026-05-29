@@ -82,7 +82,7 @@ def sync(
     if errors:
         typer.echo("Configuration validation failed:", err=True)
         for error in errors:
-            typer.echo(f"  - {error.code} {error.detail}", err=True)
+            typer.echo(f"  - {error.message}", err=True)
         raise typer.Exit(code=1)
 
     search_service: SearchIndexService | None = None
