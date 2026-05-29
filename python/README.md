@@ -55,8 +55,13 @@ python -m gitout config.toml /backup/dest --dry-run
   strategy in the live sync; lifecycle wiring (Healthchecks.io start/complete,
   auto-indexing after sync); dependency-free cron scheduling (`--cron`); and Telegram
   notifications (start/progress/completion via the Bot API, token resolution, whitelist
-  auth). The interactive Telegram command bot (long-polling `/status`, `/find`, …) is
-  intentionally not ported.
+  auth) including the interactive command handlers (`/ping /start /help /status /stats
+  /fails /info /find /reindex` with whitelist auth). Also ported: Benchmark /
+  PerformanceStats and the `allowed_users` int|string coercion.
+
+Only the Telegram long-poll *transport* loop (getUpdates) is left unported; the command
+logic it would drive is fully ported and tested. The remaining step toward a full
+cutover is promoting `python/` to the repo root and removing `src/main/kotlin`.
 
 ## CLI
 
