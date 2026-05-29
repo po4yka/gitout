@@ -14,18 +14,31 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import shutil
+import os
 import tempfile
+import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from functools import cache
 from pathlib import Path
 from urllib.parse import quote
 
 from gitout.config import Config
 from gitout.git_commands import build_git_command
+from gitout.git_exec import resolve_git_executable
 from gitout.github import UserRepositories
 from gitout.retry import RetryContext, RetryPolicy
+
+__all__ = [
+    "Engine",
+    "SyncTask",
+    "SyncOutcome",
+    "collect_sync_tasks",
+    "dry_run_line",
+    "resolve_github_token",
+    "resolve_git_executable",
+    "preflight_storage_check",
+    "default_git_runner",
+]
 
 # (argv, cwd, timeout_seconds) -> (exit_code, combined_output)
 GitRunner = Callable[[list[str], Path, float], Awaitable[tuple[int, str]]]
@@ -136,12 +149,6 @@ def collect_sync_tasks(
     return tasks
 
 
-@cache
-def resolve_git_executable() -> str:
-    """Absolute path to ``git`` via PATH search, falling back to ``git`` (mirrors util.kt)."""
-    return shutil.which("git") or "git"
-
-
 def _build_argv(task: SyncTask, config: Config, *, force_http1: bool = False) -> list[str]:
     repo_exists = task.destination.exists()
     is_clone = not repo_exists
@@ -168,6 +175,40 @@ def dry_run_line(task: SyncTask, config: Config) -> str:
     directory = task.destination if repo_exists else task.destination.parent
     argv = _build_argv(task, config)
     return f"DRY RUN {directory} {' '.join(argv)}"
+
+
+def _preflight_sync(root: Path) -> None:
+    if not root.exists():
+        raise ValueError(f"Backup destination does not exist: {root}")
+    if not root.is_dir():
+        raise ValueError(f"Backup destination is not a directory: {root}")
+    sentinel = root / f".gitout-preflight-{os.getpid()}-{time.perf_counter_ns()}"
+    payload = f"gitout-preflight:{os.getpid()}:{time.perf_counter_ns()}"
+    try:
+        sentinel.write_text(payload)
+        read_back = sentinel.read_text()
+        if read_back != payload:
+            raise ValueError(
+                f"Preflight sentinel content mismatch: expected '{payload}', got '{read_back}'"
+            )
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            sentinel.unlink()
+
+
+async def preflight_storage_check(root: Path, timeout_ms: int) -> str | None:
+    """Write/read/delete a sentinel on the backup volume before any API calls.
+
+    Returns ``None`` on success or an error message on failure (mirrors
+    Engine.preflightStorageCheck's Result<Unit>). A 0ms timeout fails fast.
+    """
+    try:
+        await asyncio.wait_for(asyncio.to_thread(_preflight_sync, root), timeout=timeout_ms / 1000)
+    except TimeoutError:
+        return f"Preflight storage check timed out after {timeout_ms}ms"
+    except Exception as exc:  # noqa: BLE001 - reported as a failure message, not raised
+        return str(exc)
+    return None
 
 
 def _write_credentials(user: str, token: str) -> Path:
