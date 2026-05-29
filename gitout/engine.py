@@ -457,7 +457,7 @@ class Engine:
             if tracker is not None:
                 tracker.save_state()
             if maint is not None and maint.should_run_full_repack():
-                maint.run_full_repack(self.destination)
+                await asyncio.to_thread(maint.run_full_repack, self.destination)
 
             # Auto-index for semantic search, then signal the healthcheck.
             if (
@@ -550,12 +550,14 @@ class Engine:
             return SyncOutcome(task=task, ok=False, error=str(exc))
 
         # Success: reset trackers, then run post-sync maintenance and LFS fetch.
+        # Both calls ultimately invoke blocking subprocess.run(); offload them to a
+        # thread pool so the event loop stays free for the other gather workers.
         if tracker is not None:
             tracker.record_success(task.name)
         if breaker is not None:
             breaker.record_success()
         if maint is not None:
-            maint.run_post_sync_maintenance(task.destination)
+            await asyncio.to_thread(maint.run_post_sync_maintenance, task.destination)
         if lfs is not None:
-            lfs.sync_lfs_if_needed(task.destination)
+            await asyncio.to_thread(lfs.sync_lfs_if_needed, task.destination)
         return SyncOutcome(task=task, ok=True)
