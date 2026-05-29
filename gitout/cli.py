@@ -21,7 +21,7 @@ import typer
 from gitout import __version__
 from gitout import config as config_module
 from gitout.cron import run_cron
-from gitout.engine import Engine
+from gitout.engine import Engine, dry_run_line
 from gitout.gemini_key import resolve_gemini_api_key
 from gitout.github_client import load_repositories
 from gitout.health_check import DEFAULT_HEALTHCHECK_HOST, HealthCheckService
@@ -142,6 +142,8 @@ def sync(
     outcomes = asyncio.run(engine.perform_sync(dry_run=dry_run))
 
     if dry_run:
+        for outcome in outcomes:
+            typer.echo(dry_run_line(outcome.task, cfg))
         return
 
     failures = [o for o in outcomes if not o.ok]

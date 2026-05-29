@@ -408,8 +408,6 @@ class Engine:
             )
 
             if dry_run:
-                for task in tasks:
-                    print(dry_run_line(task, self.config))
                 return [SyncOutcome(task=t, ok=True) for t in tasks]
 
             breaker, tracker, maint, lfs = self._build_collaborators()
