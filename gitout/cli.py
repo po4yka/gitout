@@ -19,6 +19,7 @@ from pathlib import Path
 
 import typer
 
+from gitout import __version__
 from gitout import config as config_module
 from gitout.cron import run_cron
 from gitout.engine import Engine
@@ -36,6 +37,21 @@ app = typer.Typer(
     add_completion=False,
     help="Back up Git repositories from GitHub or any git host.",
 )
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(__version__)
+        raise typer.Exit()
+
+
+@app.callback()
+def _root(
+    version: bool = typer.Option(
+        False, "--version", callback=_version_callback, is_eager=True, help="Show version and exit"
+    ),
+) -> None:
+    """gitout — back up Git repositories from GitHub or any git host."""
 
 
 @app.command()

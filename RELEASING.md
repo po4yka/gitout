@@ -2,22 +2,24 @@
 
 ## Version Numbering
 
-- Fork versions use `-fork` suffix (e.g., `0.4.0-fork`)
-- Development snapshots use `-SNAPSHOT` suffix (e.g., `0.4.0-fork-SNAPSHOT`)
+- Versions use a PEP 440 local label `+fork` (e.g., `0.4.0+fork`)
+- Development versions use `+fork.dev` (e.g., `0.4.0+fork.dev`)
+- (Local-version labels are not PyPI-publishable, which is fine — distribution is via Docker images and GitHub release artifacts.)
 
 ## Release Steps
 
-1. **Update version** in `build.gradle` (remove `-SNAPSHOT`):
-   ```gradle
-   version = '0.4.0-fork'
+1. **Update version** in `pyproject.toml` (and `gitout/__init__.py` `__version__`), dropping `.dev`:
+   ```toml
+   version = "0.4.0+fork"
    ```
 
-2. **Update CHANGELOG.md**: move unreleased items under versioned header with date
+2. **Update CHANGELOG.md**: move unreleased items under a versioned header with date.
 
 3. **Build and test**:
    ```bash
-   ./gradlew clean build
-   ./build/install/gitout/bin/gitout --version
+   ruff check gitout tests && mypy gitout && python -m pytest -q
+   python -m build           # produces dist/*.whl and dist/*.tar.gz
+   python -m gitout --version
    ```
 
 4. **Commit and tag**:
@@ -26,12 +28,12 @@
    git tag v0.4.0-fork
    ```
 
-5. **Bump to next snapshot** in `build.gradle`:
-   ```gradle
-   version = '0.5.0-fork-SNAPSHOT'
+5. **Bump to next dev version** in `pyproject.toml` / `gitout/__init__.py`:
+   ```toml
+   version = "0.5.0+fork.dev"
    ```
    ```bash
-   git commit -am "Prepare next development snapshot"
+   git commit -am "Prepare next development version"
    ```
 
 6. **Push**:
@@ -39,7 +41,7 @@
    git push && git push --tags
    ```
 
-GitHub Actions automatically: runs tests, builds distributions, publishes multi-arch Docker images (Docker Hub + GHCR), and creates a GitHub release with artifacts.
+GitHub Actions (`publish.yaml`) automatically: runs tests, builds the sdist/wheel, publishes multi-arch Docker images (Docker Hub + GHCR), and creates a GitHub release with the distribution artifacts.
 
 ## Verify
 
@@ -54,8 +56,3 @@ git checkout -b hotfix/0.4.1 v0.4.0-fork
 git checkout master && git merge hotfix/0.4.1
 git tag v0.4.1-fork && git push origin master v0.4.1-fork
 ```
-
-## Notes
-
-- Always use `-fork` suffix to distinguish from upstream releases
-- Keep upstream changes synchronized when possible

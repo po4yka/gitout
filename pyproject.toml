@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gitout"
-version = "0.4.0-fork-dev"
-description = "Automatically back up Git repositories from GitHub or any git host (Python port of the Kotlin gitout)."
+version = "0.4.0+fork.dev"
+description = "Automatically back up Git repositories from GitHub or any git host."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }

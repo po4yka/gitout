@@ -4,7 +4,7 @@ set -e
 # If already running as non-root (e.g. via docker-compose user: directive),
 # skip user management and run directly.
 if [ "$(id -u)" -ne 0 ]; then
-    exec /app/bin/gitout "$@"
+    exec gitout "$@"
 fi
 
 # Running as root: handle PUID and PGID for file permissions
@@ -35,8 +35,8 @@ if [ -n "$PUID" ] && [ -n "$PGID" ]; then
     chown -R gitout:gitout /data || { echo "Failed to set ownership on /data"; exit 1; }
 
     # Run as gitout user
-    exec su-exec gitout /app/bin/gitout "$@"
+    exec su-exec gitout gitout "$@"
 else
     # Run as root (default)
-    exec /app/bin/gitout "$@"
+    exec gitout "$@"
 fi

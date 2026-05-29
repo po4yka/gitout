@@ -8,45 +8,33 @@ on:
       - 'v*.*.*'
   workflow_dispatch:
 
-env:
-  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.vfs.watch=false -Dkotlin.incremental=false -Dorg.gradle.logging.stacktrace=full"
-
 jobs:
   build-distributions:
-    name: Build Distribution Packages
+    name: Build sdist + wheel
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Set up Java
-        uses: actions/setup-java@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          distribution: 'zulu'
-          java-version-file: .github/workflows/.java-version
+          python-version: "3.11"
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
+      - name: Install dependencies
+        run: python -m pip install -e ".[dev]" build
 
-      - name: Run tests
-        run: ./gradlew test
+      - name: Test
+        run: python -m pytest -q
 
       - name: Build distributions
-        run: ./gradlew distZip distTar
+        run: python -m build
 
-      - name: Upload ZIP distribution
+      - name: Upload distributions
         uses: actions/upload-artifact@v7
         with:
-          name: gitout-zip
-          path: build/distributions/gitout-*.zip
-          if-no-files-found: error
-
-      - name: Upload TAR distribution
-        uses: actions/upload-artifact@v7
-        with:
-          name: gitout-tar
-          path: build/distributions/gitout-*.tar
+          name: gitout-dist
+          path: dist/*
           if-no-files-found: error
 
   publish-docker:
@@ -122,10 +110,6 @@ jobs:
             ${{ steps.meta_dockerhub.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          build-args: |
-            BUILDTIME=${{ fromJSON(steps.meta_dockerhub.outputs.json).labels['org.opencontainers.image.created'] }}
-            VERSION=${{ fromJSON(steps.meta_dockerhub.outputs.json).labels['org.opencontainers.image.version'] }}
-            REVISION=${{ fromJSON(steps.meta_dockerhub.outputs.json).labels['org.opencontainers.image.revision'] }}
 
   create-release:
     name: Create GitHub Release
@@ -136,21 +120,14 @@ jobs:
       - publish-docker
     permissions:
       contents: write
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Download ZIP distribution
+      - name: Download distributions
         uses: actions/download-artifact@v8
         with:
-          name: gitout-zip
-          path: dist/
-
-      - name: Download TAR distribution
-        uses: actions/download-artifact@v8
-        with:
-          name: gitout-tar
+          name: gitout-dist
           path: dist/
 
       - name: Extract release notes
@@ -179,14 +156,14 @@ jobs:
 
             ## Installation
 
-            Download the appropriate distribution file below, extract it, and run:
-            - Linux/macOS: `bin/gitout --help`
-            - Windows: `bin\gitout.bat --help`
+            ```bash
+            pip install gitout-*.whl
+            gitout sync config.toml /backup/path
+            ```
 
-            Requires Java 8 or later.
+            Requires Python 3.11 or later.
           files: |
-            dist/gitout-*.zip
-            dist/gitout-*.tar
+            dist/*
           draft: false
           prerelease: false
           generate_release_notes: true
