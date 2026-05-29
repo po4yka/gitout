@@ -22,11 +22,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import quote
 
+from gitout.circuit_breaker import StorageCircuitBreaker
 from gitout.config import Config
+from gitout.errors import classify
+from gitout.failure_tracker import FailureTracker
 from gitout.git_commands import build_git_command
 from gitout.git_exec import resolve_git_executable
 from gitout.github import UserRepositories
-from gitout.retry import RetryContext, RetryPolicy
+from gitout.lfs import LfsSupport
+from gitout.maintenance import RepositoryMaintenance
+from gitout.retry import RetryContext, RetryPolicy, SyncFailureException
 
 __all__ = [
     "Engine",
@@ -62,6 +67,7 @@ class SyncOutcome:
     task: SyncTask
     ok: bool
     error: str | None = None
+    skipped: bool = False
 
 
 def resolve_github_token(config_token: str | None, environ: Mapping[str, str]) -> str:
@@ -248,6 +254,12 @@ class Engine:
     timeout_seconds: float = 600.0
     credentials_path: str | None = None
     retry_policy: RetryPolicy = field(default_factory=RetryPolicy)
+    # Resilience collaborators. When left None they are built from config on real runs;
+    # inject to override (e.g. in tests).
+    failure_tracker: FailureTracker | None = None
+    circuit_breaker: StorageCircuitBreaker | None = None
+    maintenance: RepositoryMaintenance | None = None
+    lfs: LfsSupport | None = None
     _token: str | None = field(default=None, init=False, repr=False)
 
     async def _discover(self) -> UserRepositories | None:
@@ -259,11 +271,54 @@ class Engine:
         self._token = resolve_github_token(github.token, self.environ)
         return await self.repo_loader(github.user, self._token)
 
+    def _build_collaborators(
+        self,
+    ) -> tuple[
+        StorageCircuitBreaker | None,
+        FailureTracker | None,
+        RepositoryMaintenance | None,
+        LfsSupport | None,
+    ]:
+        hc = self.config.health_check
+        breaker = self.circuit_breaker
+        if breaker is None and hc.circuit_breaker_enabled:
+            breaker = StorageCircuitBreaker(hc.circuit_breaker_threshold)
+
+        tracker = self.failure_tracker
+        if tracker is None and self.config.failure_tracking.enabled:
+            tracker = FailureTracker(
+                self.destination / self.config.failure_tracking.state_file,
+                self.config.failure_tracking,
+            )
+
+        maint = self.maintenance
+        if maint is None and self.config.maintenance.enabled:
+            maint = RepositoryMaintenance(
+                self.config.maintenance, timeout_seconds=self.timeout_seconds
+            )
+
+        lfs = self.lfs
+        if lfs is None and self.config.lfs.fetch_lfs:
+            candidate = LfsSupport(timeout_seconds=self.timeout_seconds)
+            lfs = candidate if candidate.is_lfs_available() else None
+
+        return breaker, tracker, maint, lfs
+
     async def perform_sync(self, dry_run: bool = False) -> list[SyncOutcome]:
         if self.config.version != 0:
             raise ValueError("Only version 0 of the config is supported at this time")
         if not dry_run and not self.destination.is_dir():
             raise ValueError("Destination must exist and must be a directory")
+
+        # Storage pre-flight: abort the whole run with one error rather than failing
+        # every repository when the backup volume is full / read-only / unmounted.
+        hc = self.config.health_check
+        if not dry_run and hc.preflight_enabled:
+            message = await preflight_storage_check(
+                self.destination, hc.preflight_timeout_seconds * 1000
+            )
+            if message is not None:
+                raise RuntimeError(f"Storage pre-flight check failed: {message}")
 
         user_repos = await self._discover()
 
@@ -288,20 +343,41 @@ class Engine:
                     print(dry_run_line(task, self.config))
                 return [SyncOutcome(task=t, ok=True) for t in tasks]
 
+            breaker, tracker, maint, lfs = self._build_collaborators()
             worker_count = self.workers or self.config.parallelism.workers
             semaphore = asyncio.Semaphore(worker_count)
 
             async def run(task: SyncTask) -> SyncOutcome:
+                # Checked before acquiring a permit so queued tasks skip once tripped.
+                if breaker is not None and breaker.is_open():
+                    return SyncOutcome(
+                        task=task, ok=False, skipped=True, error="storage circuit breaker open"
+                    )
+                if tracker is not None and tracker.should_skip(task.name):
+                    return SyncOutcome(task=task, ok=True, skipped=True)
                 async with semaphore:
-                    return await self._sync_one(task)
+                    return await self._sync_one(task, breaker, tracker, maint, lfs)
 
-            return list(await asyncio.gather(*(run(t) for t in tasks)))
+            results = list(await asyncio.gather(*(run(t) for t in tasks)))
+
+            if tracker is not None:
+                tracker.save_state()
+            if maint is not None and maint.should_run_full_repack():
+                maint.run_full_repack(self.destination)
+            return results
         finally:
             if temp_credentials is not None:
                 with contextlib.suppress(OSError):
                     temp_credentials.unlink()
 
-    async def _sync_one(self, task: SyncTask) -> SyncOutcome:
+    async def _sync_one(
+        self,
+        task: SyncTask,
+        breaker: StorageCircuitBreaker | None,
+        tracker: FailureTracker | None,
+        maint: RepositoryMaintenance | None,
+        lfs: LfsSupport | None,
+    ) -> SyncOutcome:
         is_clone = not task.destination.exists()
         cwd = task.destination.parent if is_clone else task.destination
         if is_clone:
@@ -316,6 +392,29 @@ class Engine:
 
         try:
             await self.retry_policy.execute(operation, operation_description=task.url)
-            return SyncOutcome(task=task, ok=True)
-        except Exception as exc:  # noqa: BLE001 - surfaced as an outcome, not raised
+        except SyncFailureException as exc:
+            category = exc.error_categories[-1] if exc.error_categories else classify(str(exc))
+            cause_message = str(exc.__cause__) if exc.__cause__ else str(exc)
+            if tracker is not None:
+                tracker.record_failure(task.name, cause_message, category)
+            if breaker is not None:
+                breaker.record_failure(category)
             return SyncOutcome(task=task, ok=False, error=str(exc))
+        except Exception as exc:  # noqa: BLE001 - surfaced as an outcome, not raised
+            category = classify(str(exc))
+            if tracker is not None:
+                tracker.record_failure(task.name, str(exc), category)
+            if breaker is not None:
+                breaker.record_failure(category)
+            return SyncOutcome(task=task, ok=False, error=str(exc))
+
+        # Success: reset trackers, then run post-sync maintenance and LFS fetch.
+        if tracker is not None:
+            tracker.record_success(task.name)
+        if breaker is not None:
+            breaker.record_success()
+        if maint is not None:
+            maint.run_post_sync_maintenance(task.destination)
+        if lfs is not None:
+            lfs.sync_lfs_if_needed(task.destination)
+        return SyncOutcome(task=task, ok=True)

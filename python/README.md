@@ -44,6 +44,10 @@ python -m gitout config.toml /backup/dest --dry-run
 - **Phase 0 (done):** safety net — characterization fixtures + tests + scaffolding.
 - **Phase 1 (done):** core backup — config → GitHub discovery → parallel mirror clone
   → retry, plus the Typer CLI and `--dry-run`. All characterization tests green.
-- **Phase 2+ (todo):** repository state tracking, failure tracking + circuit breaker +
-  storage pre-flight, large-repo/shallow-clone heuristics, LFS, maintenance, health
-  checks, cron scheduling, Telegram bot, and semantic search (Qdrant + Gemini).
+- **Phase 2 (done):** reliability core — storage circuit breaker, cross-session failure
+  tracking (auto-skip + cooldown + clone-strategy hints), repository state tracking
+  (change detection + exclusions), post-sync maintenance (gc/repack/commit-graph + full
+  repack cadence), Git LFS fetch, and the storage pre-flight check, all wired into the
+  engine's parallel sync.
+- **Phase 3 (todo):** Telegram bot, semantic search (Qdrant + Gemini), Healthchecks.io
+  ping, cron scheduling, and large-repo/shallow-clone heuristics in the live sync path.

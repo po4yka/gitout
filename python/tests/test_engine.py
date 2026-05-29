@@ -10,7 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from gitout.config import Config, GitConfig, GitHubClone, GitHubConfig
+from gitout import engine as engine_module
+from gitout.circuit_breaker import StorageCircuitBreaker
+from gitout.config import Config, FailureTrackingConfig, GitConfig, GitHubClone, GitHubConfig
 from gitout.engine import (
     Engine,
     SyncTask,
@@ -19,6 +21,8 @@ from gitout.engine import (
     resolve_git_executable,
     resolve_github_token,
 )
+from gitout.errors import ErrorCategory
+from gitout.failure_tracker import FailureTracker
 from gitout.github import RepositoryMetadata, UserRepositories
 from gitout.retry import RetryPolicy
 
@@ -224,4 +228,104 @@ async def test_perform_sync_requires_existing_destination(tmp_path: Path) -> Non
         config=Config(version=0), destination=tmp_path / "missing", git_runner=FakeRunner()
     )
     with pytest.raises(ValueError, match="Destination"):
+        await engine.perform_sync(dry_run=False)
+
+
+# --- resilience integration ---
+
+
+class SpyMaintenance:
+    def __init__(self) -> None:
+        self.synced: list[Path] = []
+
+    def run_post_sync_maintenance(self, path: Path) -> None:
+        self.synced.append(path)
+
+    def should_run_full_repack(self) -> bool:
+        return False
+
+    def run_full_repack(self, path: Path) -> None:  # pragma: no cover - not triggered here
+        pass
+
+
+class SpyLfs:
+    def __init__(self) -> None:
+        self.synced: list[Path] = []
+
+    def sync_lfs_if_needed(self, path: Path) -> bool:
+        self.synced.append(path)
+        return True
+
+
+def _git_only(tmp_path: Path) -> Config:
+    return Config(version=0, git=GitConfig(repos={"mirror": "https://example.com/x.git"}))
+
+
+async def test_open_circuit_breaker_skips_all_tasks(tmp_path: Path) -> None:
+    breaker = StorageCircuitBreaker(threshold=1)
+    breaker.record_failure(ErrorCategory.STORAGE_ERROR)  # already open
+    runner = FakeRunner()
+    engine = Engine(
+        config=Config(
+            version=0,
+            git=GitConfig(repos={"a": "https://x/a.git", "b": "https://x/b.git"}),
+        ),
+        destination=tmp_path,
+        git_runner=runner,
+        circuit_breaker=breaker,
+    )
+    outcomes = await engine.perform_sync(dry_run=False)
+    assert all(o.skipped and not o.ok for o in outcomes)
+    assert runner.calls == []  # nothing synced once the breaker is open
+
+
+async def test_failure_recorded_in_tracker(tmp_path: Path) -> None:
+    tracker = FailureTracker(
+        tmp_path / "f.json", FailureTrackingConfig(enabled=True), now_ms=lambda: 0
+    )
+    breaker = StorageCircuitBreaker(threshold=3)
+    runner = FakeRunner(code=128, output="fatal: the remote end hung up unexpectedly")
+    engine = Engine(
+        config=_git_only(tmp_path),
+        destination=tmp_path,
+        git_runner=runner,
+        failure_tracker=tracker,
+        circuit_breaker=breaker,
+        retry_policy=RetryPolicy(max_attempts=1, base_delay_ms=0, sleep=_noop_sleep),
+    )
+    outcomes = await engine.perform_sync(dry_run=False)
+    assert outcomes[0].ok is False
+    record = tracker.get_failure_record("mirror")
+    assert record is not None
+    assert record.consecutive_failures == 1
+    assert record.last_error_category == "NETWORK_ERROR"
+    assert "remote end hung up" in (record.last_error_message or "")
+    assert breaker.is_open() is False  # network error never trips the storage breaker
+
+
+async def test_maintenance_and_lfs_run_after_success(tmp_path: Path) -> None:
+    maint = SpyMaintenance()
+    lfs = SpyLfs()
+    engine = Engine(
+        config=_git_only(tmp_path),
+        destination=tmp_path,
+        git_runner=FakeRunner(),
+        maintenance=maint,  # type: ignore[arg-type]
+        lfs=lfs,  # type: ignore[arg-type]
+    )
+    await engine.perform_sync(dry_run=False)
+    dest = tmp_path / "git" / "mirror"
+    assert maint.synced == [dest]
+    assert lfs.synced == [dest]
+
+
+async def test_preflight_failure_aborts_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def failing_preflight(root: Path, timeout_ms: int) -> str:
+        return "no space left on device"
+
+    monkeypatch.setattr(engine_module, "preflight_storage_check", failing_preflight)
+    engine = Engine(config=_git_only(tmp_path), destination=tmp_path, git_runner=FakeRunner())
+    with pytest.raises(RuntimeError, match="pre-flight"):
         await engine.perform_sync(dry_run=False)
