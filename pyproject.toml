@@ -33,13 +33,13 @@ include = ["gitout*"]
 # Testing
 # ---------------------------------------------------------------------------
 # pythonpath = ["."] lets `import gitout` resolve without an editable install,
-# so the characterization suite runs with a bare `python -m pytest` from python/.
+# so the characterization suite runs with a bare `python -m pytest`.
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
-    "characterization: behavior captured from the Kotlin implementation; the Python port must satisfy it.",
+    "characterization: locked-in behavior captured as a regression guard.",
 ]
 
 [tool.ruff]
