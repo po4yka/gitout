@@ -7,7 +7,10 @@ keys). ``parse``, ``validate`` and ``to_normalized_dict`` are implemented in Pha
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import re
+import tomllib
+from dataclasses import asdict, dataclass, field, fields
+from pathlib import Path
 from typing import Any
 
 DEFAULT_TELEGRAM_PROGRESS_STEP_PERCENT = 10
@@ -178,16 +181,193 @@ class ValidationError:
     detail: dict[str, Any] = field(default_factory=dict)
 
 
+def _known_kwargs(cls: type, data: dict[str, Any]) -> dict[str, Any]:
+    """Keep only keys that are fields of ``cls`` (lenient: drop unknown keys)."""
+    names = {f.name for f in fields(cls)}
+    return {k: v for k, v in data.items() if k in names}
+
+
 def parse(toml_text: str) -> Config:
     """Parse TOML into a :class:`Config`, ignoring unknown keys (lenient, like ktoml)."""
-    raise NotImplementedError("Phase 1: port Config.parse")
+    raw = tomllib.loads(toml_text)
 
+    github: GitHubConfig | None = None
+    gh = raw.get("github")
+    if gh is not None:
+        github = GitHubConfig(
+            user=gh.get("user", ""),
+            token=gh.get("token"),
+            archive=GitHubArchive(**_known_kwargs(GitHubArchive, gh.get("archive", {}))),
+            clone=GitHubClone(**_known_kwargs(GitHubClone, gh.get("clone", {}))),
+        )
 
-def validate(config: Config) -> list[ValidationError]:
-    """Return validation errors for ``config`` (empty list when valid)."""
-    raise NotImplementedError("Phase 1: port Config.validate")
+    parallelism_raw = raw.get("parallelism", {})
+    priorities = [
+        PriorityPattern(**_known_kwargs(PriorityPattern, p))
+        for p in parallelism_raw.get("priorities", [])
+    ]
+    parallelism_kwargs = _known_kwargs(Parallelism, parallelism_raw)
+    parallelism_kwargs.pop("priorities", None)
+    parallelism = Parallelism(priorities=priorities, **parallelism_kwargs)
+
+    telegram: Telegram | None = None
+    tg = raw.get("telegram")
+    if tg is not None:
+        telegram = Telegram(**_known_kwargs(Telegram, tg))
+
+    return Config(
+        version=raw.get("version", 0),
+        github=github,
+        git=GitConfig(repos=dict(raw.get("git", {}).get("repos", {}))),
+        ssl=Ssl(**_known_kwargs(Ssl, raw.get("ssl", {}))),
+        http=Http(**_known_kwargs(Http, raw.get("http", {}))),
+        parallelism=parallelism,
+        metrics=Metrics(**_known_kwargs(Metrics, raw.get("metrics", {}))),
+        telegram=telegram,
+        large_repos=LargeRepoConfig(**_known_kwargs(LargeRepoConfig, raw.get("large_repos", {}))),
+        failure_tracking=FailureTrackingConfig(
+            **_known_kwargs(FailureTrackingConfig, raw.get("failure_tracking", {}))
+        ),
+        health_check=HealthCheckConfig(
+            **_known_kwargs(HealthCheckConfig, raw.get("health_check", {}))
+        ),
+        maintenance=Maintenance(**_known_kwargs(Maintenance, raw.get("maintenance", {}))),
+        lfs=Lfs(**_known_kwargs(Lfs, raw.get("lfs", {}))),
+        exit_on_failure=raw.get("exit_on_failure", True),
+        search=Search(**_known_kwargs(Search, raw.get("search", {}))),
+    )
 
 
 def to_normalized_dict(config: Config) -> dict[str, Any]:
     """Serialize a :class:`Config` to a TOML/SerialName-keyed dict for parity comparison."""
-    raise NotImplementedError("Phase 1: port Config serialization")
+    return asdict(config)
+
+
+_GIT_URL_RE = re.compile(r"^(https?://|git@|git://|ssh://|file://).*")
+_SCP_URL_RE = re.compile(r"^[\w.-]+@[\w.-]+:.*")
+_REPO_NAME_RE = re.compile(r"^[a-zA-Z0-9._/-]+$")
+
+
+def _blank(value: str) -> bool:
+    return not value.strip()
+
+
+def _is_valid_git_url(url: str) -> bool:
+    return bool(_GIT_URL_RE.match(url) or _SCP_URL_RE.match(url))
+
+
+def _is_valid_repository_name(name: str) -> bool:
+    if ".." in name:
+        return False
+    if name.startswith("/") or name.endswith("/"):
+        return False
+    if "//" in name:
+        return False
+    return bool(_REPO_NAME_RE.match(name))
+
+
+def validate(config: Config) -> list[ValidationError]:
+    """Return validation errors for ``config`` (empty list when valid)."""
+    errors: list[ValidationError] = []
+
+    def err(code: str, **detail: Any) -> None:
+        errors.append(ValidationError(code=code, detail=detail))
+
+    if config.version < 0:
+        err("InvalidVersion", version=config.version)
+
+    gh = config.github
+    if gh is not None:
+        if _blank(gh.user):
+            err("EmptyGitHubUser")
+        c = gh.clone
+        if not c.starred and not c.watched and not c.gists and not c.repos:
+            err("NoGitHubCloneOptionsEnabled")
+
+    for name, url in config.git.repos.items():
+        if _blank(name):
+            err("EmptyGitRepoName", url=url)
+        elif not _is_valid_repository_name(name):
+            err("InvalidRepositoryName", name=name)
+        if _blank(url):
+            err("EmptyGitRepoUrl", name=name)
+        if not _is_valid_git_url(url):
+            err("InvalidGitUrl", name=name, url=url)
+
+    cert = config.ssl.cert_file
+    if cert is not None and not _blank(cert) and not Path(cert).exists():
+        err("CertFileNotFound", path=cert)
+
+    p = config.parallelism
+    if p.workers < 1:
+        err("InvalidWorkerCount", count=p.workers)
+    if p.workers > 32:
+        err("TooManyWorkers", count=p.workers)
+    if p.progress_interval_ms < 100:
+        err("InvalidProgressInterval", interval=p.progress_interval_ms)
+    if p.repository_timeout_seconds is not None and p.repository_timeout_seconds < 1:
+        err("InvalidRepositoryTimeout", timeout=p.repository_timeout_seconds)
+    for pattern in p.priorities:
+        if _blank(pattern.pattern):
+            err("EmptyPriorityPattern")
+        if pattern.timeout is not None and pattern.timeout < 1:
+            err("InvalidPriorityTimeout", pattern=pattern.pattern, timeout=pattern.timeout)
+
+    if config.metrics.format not in ("console", "json", "csv"):
+        err("InvalidMetricsFormat", format=config.metrics.format)
+    if config.metrics.export_path is not None and _blank(config.metrics.export_path):
+        err("EmptyMetricsExportPath")
+
+    tg = config.telegram
+    if tg is not None:
+        if _blank(tg.chat_id):
+            err("EmptyTelegramChatId")
+        if not 1 <= tg.notify_progress_step_percent <= 100:
+            err("InvalidTelegramProgressStep", step=tg.notify_progress_step_percent)
+
+    h = config.http
+    if h.version not in ("HTTP/1.1", "HTTP/2"):
+        err("InvalidHttpVersion", version=h.version)
+    if h.post_buffer_size < 1024:
+        err("InvalidPostBufferSize", size=h.post_buffer_size)
+    if h.low_speed_limit < 0:
+        err("InvalidLowSpeedLimit", limit=h.low_speed_limit)
+    if h.low_speed_time < 1:
+        err("InvalidLowSpeedTime", time=h.low_speed_time)
+
+    lr = config.large_repos
+    if lr.size_threshold_kb < 1024:
+        err("InvalidLargeRepoThreshold", threshold=lr.size_threshold_kb)
+    if lr.timeout_multiplier < 1.0:
+        err("InvalidTimeoutMultiplier", multiplier=lr.timeout_multiplier)
+    if lr.max_parallel < 1:
+        err("InvalidMaxParallelLargeRepos", count=lr.max_parallel)
+    if lr.shallow_clone_after_failures < 1:
+        err("InvalidShallowCloneFailures", count=lr.shallow_clone_after_failures)
+
+    ft = config.failure_tracking
+    if ft.max_consecutive_failures < 1:
+        err("InvalidMaxConsecutiveFailures", count=ft.max_consecutive_failures)
+    if ft.failure_cooldown_hours < 0:
+        err("InvalidFailureCooldown", hours=ft.failure_cooldown_hours)
+
+    m = config.maintenance
+    if m.strategy not in ("gc-auto", "geometric", "none"):
+        err("InvalidMaintenanceStrategy", strategy=m.strategy)
+    if m.full_repack_interval not in ("never", "weekly", "monthly"):
+        err("InvalidFullRepackInterval", interval=m.full_repack_interval)
+    if m.repack_window < 1:
+        err("InvalidRepackWindow", window=m.repack_window)
+    if m.repack_depth < 1:
+        err("InvalidRepackDepth", depth=m.repack_depth)
+
+    s = config.search
+    if s.top_k < 1 or s.top_k > 100:
+        err("InvalidTopK", count=s.top_k)
+    if s.enabled:
+        if _blank(s.qdrant_url):
+            err("EmptyQdrantUrl")
+        if _blank(s.collection_name):
+            err("EmptyCollectionName")
+
+    return errors

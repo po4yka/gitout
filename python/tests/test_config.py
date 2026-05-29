@@ -22,10 +22,6 @@ from gitout.config import (
 )
 from tests.helpers import load_json
 
-pytestmark = pytest.mark.xfail(
-    reason="gitout.config not implemented (Phase 1)", strict=False, raises=NotImplementedError
-)
-
 _PARSE_CASES = load_json("config", "parse_cases.json")["cases"]
 
 
